@@ -12,27 +12,30 @@
       <img src="/static/tosch-logo.png" alt="Tosch" style="height:48px;margin-bottom:1rem">
       <h1>Tosch Veiling</h1>
 
-      <!-- Stap 1: naam + e-mail -->
-      <div id="stapLogin">
-        <p class="subtitle">Vul je naam en e-mailadres in om deel te nemen</p>
-        <div class="form-group">
-          <label>Je naam</label>
-          <input id="loginNaam" type="text" placeholder="Jan Jansen" autofocus>
-        </div>
+      <!-- Stap 1: e-mailadres -->
+      <div id="stapEmail">
+        <p class="subtitle">Vul je e-mailadres in om deel te nemen</p>
         <div class="form-group">
           <label>E-mailadres</label>
-          <input id="loginEmail" type="email" placeholder="naam@bedrijf.nl">
+          <input id="loginEmail" type="email" placeholder="naam@bedrijf.nl" autofocus>
         </div>
-        <div id="errorLogin" class="alert alert-error" style="display:none"></div>
+        <div id="errorEmail" class="alert alert-error" style="display:none"></div>
         <button class="btn btn-primary btn-full" id="stuurBtn" onclick="stuurCode()">
           Verificatiecode versturen →
         </button>
       </div>
 
-      <!-- Stap 2: code invoeren -->
+      <!-- Stap 2: code (+ naam indien nieuwe gebruiker) -->
       <div id="stapCode" style="display:none">
         <p class="subtitle" id="codeSubtitel"></p>
-        <div class="form-group" style="margin-top:1rem">
+
+        <!-- Naam invoeren: alleen voor nieuwe gebruikers -->
+        <div id="naamGroup" class="form-group" style="display:none;margin-top:1rem">
+          <label>Je naam</label>
+          <input id="loginNaam" type="text" placeholder="Jan Jansen">
+        </div>
+
+        <div class="form-group" style="margin-top:.75rem">
           <label>Verificatiecode</label>
           <input id="loginCode" type="text" inputmode="numeric" placeholder="123456" maxlength="6"
                  style="letter-spacing:10px;font-size:1.5rem;text-align:center;font-weight:800">
@@ -54,24 +57,20 @@
   </div>
 
   <script>
-    const params  = new URLSearchParams(location.search);
-    const nextUrl = params.get('next') || '/veilingen';
+    const params    = new URLSearchParams(location.search);
+    const nextUrl   = params.get('next') || '/veilingen';
+    let   isNewUser = false;
 
-    document.getElementById('loginNaam').addEventListener('keydown', e => {
-      if (e.key === 'Enter') document.getElementById('loginEmail').focus();
-    });
     document.getElementById('loginEmail').addEventListener('keydown', e => {
       if (e.key === 'Enter') stuurCode();
     });
 
     async function stuurCode() {
-      const naam  = document.getElementById('loginNaam').value.trim();
       const email = document.getElementById('loginEmail').value.trim().toLowerCase();
-      const errEl = document.getElementById('errorLogin');
+      const errEl = document.getElementById('errorEmail');
       errEl.style.display = 'none';
 
-      if (!naam)  return toonFout('login', 'Vul je naam in');
-      if (!email || !email.includes('@')) return toonFout('login', 'Vul een geldig e-mailadres in');
+      if (!email || !email.includes('@')) return toonFout('email', 'Vul een geldig e-mailadres in');
 
       const btn = document.getElementById('stuurBtn');
       btn.textContent = 'Versturen...'; btn.disabled = true;
@@ -80,42 +79,63 @@
         const res = await fetch('/api/auth/send-login-code', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ naam, email })
+          body: JSON.stringify({ email })
         });
         if (!res.ok) {
           const err = await res.json();
-          return toonFout('login', err.detail || 'Versturen mislukt');
+          return toonFout('email', err.detail || 'Versturen mislukt');
         }
-        document.getElementById('codeSubtitel').textContent =
-          `We stuurden een code naar ${email}. Controleer ook je spammap.`;
-        document.getElementById('stapLogin').style.display = 'none';
+        const data = await res.json();
+        isNewUser = !data.known;
+
+        if (data.known) {
+          document.getElementById('codeSubtitel').textContent =
+            `Welkom terug! We stuurden een code naar ${email}.`;
+          document.getElementById('naamGroup').style.display = 'none';
+        } else {
+          document.getElementById('codeSubtitel').textContent =
+            `We stuurden een code naar ${email}. Vul ook je naam in.`;
+          document.getElementById('naamGroup').style.display = 'block';
+          setTimeout(() => document.getElementById('loginNaam').focus(), 50);
+        }
+
+        document.getElementById('stapEmail').style.display = 'none';
         document.getElementById('stapCode').style.display  = 'block';
-        document.getElementById('loginCode').focus();
+        if (!isNewUser) document.getElementById('loginCode').focus();
       } catch {
-        toonFout('login', 'Verbindingsfout. Probeer opnieuw.');
+        toonFout('email', 'Verbindingsfout. Probeer opnieuw.');
       } finally {
         btn.textContent = 'Verificatiecode versturen →'; btn.disabled = false;
       }
     }
 
-    document.getElementById('loginCode').addEventListener('keydown', e => {
-      if (e.key === 'Enter') controleerCode();
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && document.getElementById('stapCode').style.display !== 'none') {
+        const focus = document.activeElement;
+        // alleen Enter op code-veld verwerken
+        if (focus && focus.id === 'loginCode') controleerCode();
+      }
     });
 
     async function controleerCode() {
-      const naam  = document.getElementById('loginNaam').value.trim();
       const email = document.getElementById('loginEmail').value.trim().toLowerCase();
       const code  = document.getElementById('loginCode').value.trim();
-      if (code.length < 6) return toonFout('code', 'Voer de 6-cijferige code in');
+      const naam  = document.getElementById('loginNaam').value.trim();
+
+      if (isNewUser && !naam) return toonFout('code', 'Vul je naam in');
+      if (code.length < 6)   return toonFout('code', 'Voer de 6-cijferige code in');
 
       const btn = document.getElementById('verifBtn');
       btn.textContent = 'Bezig...'; btn.disabled = true;
 
       try {
+        const body = { email, code };
+        if (isNewUser) body.naam = naam;
+
         const res = await fetch('/api/auth/verify-login-code', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ naam, email, code })
+          body: JSON.stringify(body)
         });
         if (!res.ok) {
           const err = await res.json();
@@ -131,13 +151,13 @@
 
     function nieuweCode() {
       document.getElementById('stapCode').style.display  = 'none';
-      document.getElementById('stapLogin').style.display = 'block';
+      document.getElementById('stapEmail').style.display = 'block';
       document.getElementById('loginCode').value = '';
       document.getElementById('errorCode').style.display = 'none';
     }
 
     function toonFout(stap, msg) {
-      const id = stap === 'login' ? 'errorLogin' : 'errorCode';
+      const id = stap === 'email' ? 'errorEmail' : 'errorCode';
       const el = document.getElementById(id);
       el.textContent = msg; el.style.display = 'block';
     }

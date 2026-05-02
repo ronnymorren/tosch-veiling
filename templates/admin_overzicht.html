@@ -47,12 +47,7 @@
             {% else %}
               <span class="ov-badge badge-live">● Live</span>
             {% endif %}
-            <div style="display:flex;gap:.5rem;align-items:center">
-              {% if a.require_email_verification %}
-              <span class="ov-badge" style="background:#eff6ff;color:#1d4ed8">✉ E-mail</span>
-              {% endif %}
-              <span class="ov-id">#{{ a.id }}</span>
-            </div>
+            <span class="ov-id">#{{ a.id }}</span>
           </div>
 
           <div class="ov-titel">{{ a.title }}</div>
@@ -66,10 +61,12 @@
               <span class="ov-stat-label">Biedingen</span>
               <span class="ov-stat-val">{{ a.bid_count }}</span>
             </div>
+            {% if a.allowed_domains %}
             <div class="ov-stat">
-              <span class="ov-stat-label">Toegangscode</span>
-              <span class="ov-stat-val ov-code">{{ a.access_code }}</span>
+              <span class="ov-stat-label">Domein</span>
+              <span class="ov-stat-val" style="font-size:.85rem">{{ a.allowed_domains }}</span>
             </div>
+            {% endif %}
             <div class="ov-stat">
               <span class="ov-stat-label">Eindigt op</span>
               <span class="ov-stat-val">{{ a.end_time[:16].replace("T", " ") }}</span>
@@ -79,7 +76,7 @@
           <div class="ov-actions">
             <a href="/veiling/{{ a.id }}" target="_blank" class="btn btn-primary btn-sm">Veiling openen</a>
             <button class="btn btn-ghost btn-sm"
-              onclick="kopieer('{{ request.url.scheme }}://{{ request.url.netloc }}/veiling/{{ a.id }}', '{{ a.access_code }}', this)">
+              onclick="kopieer('{{ request.url.scheme }}://{{ request.url.netloc }}/veiling/{{ a.id }}', this)">
               Link kopiëren
             </button>
             <a href="/admin/veiling/{{ a.id }}/biedingen" class="btn btn-ghost btn-sm">🗑 Biedingen</a>
@@ -88,6 +85,10 @@
             <button class="btn btn-ghost btn-sm" style="color:var(--gray-400)"
               onclick="archiveer({{ a.id }}, this)">📦 Archiveer</button>
             {% endif %}
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+              onclick="verwijder({{ a.id }}, '{{ a.title | e }}', {{ a.bid_count }}, this)">
+              Verwijderen
+            </button>
           </div>
         </div>
       </div>
@@ -135,10 +136,6 @@
                 <span class="ov-stat-val">{{ a.bid_count }}</span>
               </div>
               <div class="ov-stat">
-                <span class="ov-stat-label">Toegangscode</span>
-                <span class="ov-stat-val ov-code" style="color:var(--gray-400)">{{ a.access_code }}</span>
-              </div>
-              <div class="ov-stat">
                 <span class="ov-stat-label">Afgelopen op</span>
                 <span class="ov-stat-val">{{ a.end_time[:16].replace("T", " ") }}</span>
               </div>
@@ -146,8 +143,11 @@
 
             <div class="ov-actions">
               <a href="/veiling/{{ a.id }}" target="_blank" class="btn btn-ghost btn-sm">Bekijken</a>
-              <button class="btn btn-ghost btn-sm"
-                onclick="herstel({{ a.id }}, this)">↩ Herstel</button>
+              <button class="btn btn-ghost btn-sm" onclick="herstel({{ a.id }}, this)">↩ Herstel</button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                onclick="verwijder({{ a.id }}, '{{ a.title | e }}', {{ a.bid_count }}, this)">
+                Verwijderen
+              </button>
             </div>
           </div>
         </div>
@@ -156,6 +156,23 @@
     </div>
     {% endif %}
 
+  </div>
+
+  <!-- Bevestigingsdialoog verwijderen -->
+  <div id="verwijderModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);
+       z-index:999;display:flex;align-items:center;justify-content:center;padding:1.5rem">
+    <div style="background:#fff;border-radius:14px;padding:2rem;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+      <div style="font-size:2rem;margin-bottom:.75rem">⚠️</div>
+      <h2 style="font-size:1.2rem;font-weight:700;margin-bottom:.5rem">Veiling verwijderen?</h2>
+      <p id="verwijderTekst" style="color:var(--gray-500);font-size:.9375rem;margin-bottom:1.5rem"></p>
+      <div style="display:flex;gap:.75rem">
+        <button class="btn btn-ghost" style="flex:1" onclick="sluitModal()">Annuleren</button>
+        <button class="btn btn-primary" id="verwijderConfirm"
+                style="flex:1;background:var(--red)" onclick="bevestigVerwijder()">
+          Definitief verwijderen
+        </button>
+      </div>
+    </div>
   </div>
 
   <style>
@@ -195,13 +212,15 @@
     .ov-stat  { display: flex; flex-direction: column; }
     .ov-stat-label { font-size: .7rem; font-weight: 600; color: var(--gray-400); letter-spacing: .05em; text-transform: uppercase; }
     .ov-stat-val   { font-size: .9375rem; font-weight: 700; color: var(--gray-900); margin-top: .1rem; }
-    .ov-code       { letter-spacing: 3px; color: var(--green); }
     .ov-actions    { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: auto; }
+
+    #verwijderModal { display: none; }
+    #verwijderModal.open { display: flex; }
   </style>
 
   <script>
-    function kopieer(link, code, btn) {
-      navigator.clipboard.writeText(link + '\nToegangsode: ' + code);
+    function kopieer(link, btn) {
+      navigator.clipboard.writeText(link);
       const orig = btn.textContent;
       btn.textContent = '✓ Gekopieerd!';
       setTimeout(() => btn.textContent = orig, 2000);
@@ -210,7 +229,7 @@
     function toggleArchief() {
       const sectie = document.getElementById('archiefSectie');
       const btn    = document.getElementById('archiefToggle');
-      if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;  // bewaar origineel eerst
+      if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;
       const open = sectie.style.display === 'none';
       sectie.style.display = open ? 'block' : 'none';
       btn.textContent = open ? '📦 Verberg archief' : btn.dataset.orig;
@@ -229,6 +248,44 @@
       await fetch(`/api/auction/${id}/unarchive`, { method: 'POST' });
       location.reload();
     }
+
+    // ── Verwijderen met bevestiging ──────────────────────────────────────────
+    let verwijderTarget = null;
+
+    function verwijder(id, titel, biedingen, btn) {
+      verwijderTarget = id;
+      const tekst = biedingen > 0
+        ? `"${titel}" heeft ${biedingen} bod${biedingen > 1 ? 'ding' : ''}. Al deze gegevens worden permanent verwijderd en kunnen niet worden hersteld.`
+        : `"${titel}" wordt permanent verwijderd. Dit kan niet ongedaan worden gemaakt.`;
+      document.getElementById('verwijderTekst').textContent = tekst;
+      document.getElementById('verwijderModal').classList.add('open');
+    }
+
+    function sluitModal() {
+      document.getElementById('verwijderModal').classList.remove('open');
+      verwijderTarget = null;
+    }
+
+    async function bevestigVerwijder() {
+      if (!verwijderTarget) return;
+      const btn = document.getElementById('verwijderConfirm');
+      btn.textContent = 'Verwijderen...'; btn.disabled = true;
+      const res = await fetch(`/api/auction/${verwijderTarget}`, { method: 'DELETE' });
+      if (res.ok) {
+        document.getElementById(`card-${verwijderTarget}`).style.transition = 'opacity .3s';
+        document.getElementById(`card-${verwijderTarget}`).style.opacity   = '0';
+        sluitModal();
+        setTimeout(() => location.reload(), 350);
+      } else {
+        btn.textContent = 'Definitief verwijderen'; btn.disabled = false;
+        alert('Verwijderen mislukt. Probeer opnieuw.');
+      }
+    }
+
+    // Sluiten bij klik buiten modal
+    document.getElementById('verwijderModal').addEventListener('click', e => {
+      if (e.target === e.currentTarget) sluitModal();
+    });
   </script>
 </body>
 </html>

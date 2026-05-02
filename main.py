@@ -165,6 +165,14 @@ def init_db():
             used       INTEGER DEFAULT 0
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id         SERIAL  PRIMARY KEY,
+            email      TEXT    UNIQUE NOT NULL,
+            naam       TEXT    NOT NULL,
+            created_at TEXT    NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -662,19 +670,22 @@ async def verify_code(request: Request):
 @app.post("/api/auth/send-login-code")
 async def send_login_code(request: Request):
     data  = await request.json()
-    naam  = data.get("naam", "").strip()
     email = data.get("email", "").strip().lower()
 
-    if not naam:
-        raise HTTPException(400, "Vul je naam in")
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(400, "Ongeldig e-mailadres")
+
+    # Check of dit e-mailadres al bekend is
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("SELECT naam FROM users WHERE email = %s", (email,))
+    user_row = cur.fetchone()
+    known = user_row is not None
+    begroeting = user_row["naam"] if known else "Hoi"
 
     code       = "".join(secrets.choice("0123456789") for _ in range(6))
     expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
 
-    conn = get_conn()
-    cur  = get_cur(conn)
     # auction_id = 0 is schildwacht voor globale login (geen specifieke veiling)
     cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = 0", (email,))
     cur.execute(
@@ -691,7 +702,7 @@ async def send_login_code(request: Request):
       </div>
       <div style="background:#fff;padding:32px 24px;border:1px solid #e5e7eb;border-radius:0 0 12px 12px">
         <p style="color:#374151;margin:0 0 24px">
-          Hallo <strong>{naam}</strong>,<br><br>
+          {begroeting},<br><br>
           Gebruik onderstaande code om in te loggen op de Tosch Veiling:
         </p>
         <div style="background:#f9fafb;border:2px solid #e5e7eb;border-radius:12px;
@@ -711,7 +722,7 @@ async def send_login_code(request: Request):
     except Exception as e:
         raise HTTPException(500, f"E-mail versturen mislukt: {e}")
 
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "known": known})
 
 
 # ── API: globale login – code controleren ─────────────────────────────────────
@@ -719,11 +730,11 @@ async def send_login_code(request: Request):
 @app.post("/api/auth/verify-login-code")
 async def verify_login_code(request: Request):
     data  = await request.json()
-    naam  = data.get("naam", "").strip()
     email = data.get("email", "").strip().lower()
     code  = data.get("code", "").strip()
+    naam_nieuw = data.get("naam", "").strip()  # alleen verplicht voor nieuwe gebruikers
 
-    if not naam or not email or not code:
+    if not email or not code:
         raise HTTPException(400, "Ontbrekende gegevens")
 
     conn = get_conn()
@@ -747,6 +758,22 @@ async def verify_login_code(request: Request):
         raise HTTPException(400, "Onjuiste code. Probeer opnieuw.")
 
     cur.execute("UPDATE email_verifications SET used = 1 WHERE id = %s", (row["id"],))
+
+    # Naam ophalen of opslaan
+    cur.execute("SELECT naam FROM users WHERE email = %s", (email,))
+    user_row = cur.fetchone()
+    if user_row:
+        naam = user_row["naam"]
+    else:
+        if not naam_nieuw:
+            conn.close()
+            raise HTTPException(400, "Vul je naam in — het is je eerste keer")
+        naam = naam_nieuw
+        cur.execute(
+            "INSERT INTO users (email, naam, created_at) VALUES (%s, %s, %s)",
+            (email, naam, datetime.now().isoformat())
+        )
+
     conn.commit()
     conn.close()
 
@@ -841,6 +868,20 @@ async def delete_bid(bid_id: int, request: Request):
 
 
 # ── API: archiveren ───────────────────────────────────────────────────────────
+
+@app.delete("/api/auction/{auction_id}")
+async def delete_auction(auction_id: int, request: Request):
+    if not is_admin(request):
+        raise HTTPException(status_code=403, detail="Geen toegang")
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("DELETE FROM bids WHERE auction_id = %s", (auction_id,))
+    cur.execute("DELETE FROM email_verifications WHERE auction_id = %s", (auction_id,))
+    cur.execute("DELETE FROM auctions WHERE id = %s", (auction_id,))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True})
+
 
 @app.post("/api/auction/{auction_id}/archive")
 async def archive_auction(auction_id: int, request: Request):
