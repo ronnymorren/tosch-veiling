@@ -37,7 +37,7 @@
       <div class="overzicht-card {% if a.is_ended %}card-ended{% endif %}" id="card-{{ a.id }}">
 
         {% if a.image_url %}
-        <img src="/api/image-proxy?url={{ a.image_url | urlencode }}" alt="{{ a.title }}" class="ov-img">
+        <img src="/api/image-proxy?url={{ a.image_url }}" alt="{{ a.title }}" class="ov-img">
         {% endif %}
 
         <div class="ov-body">

@@ -314,6 +314,9 @@ async def product_info(request: Request):
     ]
 
     def probeer_download(url: str) -> str:
+        # Strenge validatie: alleen absolute https-URLs accepteren
+        if not url.startswith("https://"):
+            return ""
         if IS_VERCEL:
             return url  # externe URL direct bewaren
         ext   = ".png" if ".png" in url.lower() else ".jpg"
@@ -338,11 +341,17 @@ async def product_info(request: Request):
             for r in results:
                 if len(image_urls) >= 5:
                     break
-                ext_url = r.get("image", "")
-                if not ext_url.startswith("https"):
+                ext_url   = r.get("image", "")
+                thumb_url = r.get("thumbnail", "")
+                # Op Vercel: thumbnail (Bing CDN) als ext_url geen absolute https-URL is
+                if IS_VERCEL:
+                    use_url = ext_url if ext_url.startswith("https://") else thumb_url
+                else:
+                    use_url = ext_url
+                if not use_url.startswith("https://"):
                     continue
                 try:
-                    local = probeer_download(ext_url)
+                    local = probeer_download(use_url)
                     if local and local not in image_urls:
                         image_urls.append(local)
                 except Exception:
