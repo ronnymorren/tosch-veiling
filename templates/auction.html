@@ -63,9 +63,31 @@
       50%      { color: #dc2626; }
     }
     .countdown-alarm { animation: timerAlarm 1s ease-in-out infinite; }
+
+    /* ── Overboden banner ───────────────────────────────────────────────────── */
+    @keyframes slideDown {
+      from { transform: translateY(-100%); opacity: 0; }
+      to   { transform: translateY(0);     opacity: 1; }
+    }
+    @keyframes slideUp {
+      from { transform: translateY(0);     opacity: 1; }
+      to   { transform: translateY(-100%); opacity: 0; }
+    }
+    #overbodenBanner {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 900;
+      background: #dc2626; color: #fff;
+      padding: 1rem 1.5rem;
+      text-align: center; font-weight: 700; font-size: 1rem;
+      box-shadow: 0 4px 16px rgba(220,38,38,.4);
+      animation: slideDown .35s cubic-bezier(.34,1.56,.64,1);
+      cursor: pointer;
+    }
   </style>
 </head>
 <body class="auction-body">
+
+  <!-- Overboden banner (klik om te sluiten) -->
+  <div id="overbodenBanner" style="display:none" onclick="sluitOverbodenBanner()"></div>
 
   <!-- Confetti canvas -->
   <canvas id="confettiCanvas" style="display:none"></canvas>
@@ -644,10 +666,11 @@
         // 🔔 Overboden-melding
         if (prevLeider && prevLeider.toLowerCase() === mijnNaam.toLowerCase()
             && nieuweLeider && nieuweLeider.toLowerCase() !== mijnNaam.toLowerCase()) {
-          stuurNotificatie(
-            'Je bent overboden! 📢',
-            `${nieuweLeider} biedt nu ${fmtEuro(data.current_price)} – bied snel terug!`
-          );
+          const tekst = `📢 Je bent overboden door ${nieuweLeider}! Huidig bod: ${fmtEuro(data.current_price)} — bied nu terug!`;
+          toonOverbodenBanner(tekst);
+          stuurNotificatie('Je bent overboden! 📢',
+            `${nieuweLeider} biedt nu ${fmtEuro(data.current_price)} – bied snel terug!`);
+          speelAlarm();
         }
 
         updateBod(data);
@@ -666,6 +689,24 @@
           toonAfgelopen(data.winner, data.current_price, true);
         }
       } catch { /* stil falen, volgende poll probeert het opnieuw */ }
+    }
+
+    // ── 📢 In-page overboden banner ────────────────────────────────────────────
+    let overbodenTimer = null;
+
+    function toonOverbodenBanner(tekst) {
+      const el = document.getElementById('overbodenBanner');
+      el.textContent = tekst + '  ✕';
+      el.style.display = 'block';
+      el.style.animation = 'slideDown .35s cubic-bezier(.34,1.56,.64,1)';
+      if (overbodenTimer) clearTimeout(overbodenTimer);
+      overbodenTimer = setTimeout(sluitOverbodenBanner, 10000);
+    }
+
+    function sluitOverbodenBanner() {
+      const el = document.getElementById('overbodenBanner');
+      el.style.animation = 'slideUp .25s ease-in forwards';
+      setTimeout(() => { el.style.display = 'none'; el.style.animation = ''; }, 260);
     }
 
     // ── 🔔 Browser-notificatie ─────────────────────────────────────────────────
