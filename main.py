@@ -32,8 +32,12 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tosch2024")
 SESSION_COOKIE = "tosch_admin"
 SESSION_TTL    = 8 * 3600   # 8 uur
 
-# Op Vercel: /tmp (ephemeral); lokaal: naast main.py
-DB_PATH = Path("/tmp/veiling.db") if IS_VERCEL else Path(__file__).parent / "veiling.db"
+# Windows = lokale dev → naast main.py; Linux/Mac = Vercel/server → /tmp
+# (betrouwbaarder dan VERCEL env var die soms te laat beschikbaar is)
+if os.name == "nt":
+    DB_PATH = Path(__file__).parent / "veiling.db"
+else:
+    DB_PATH = Path("/tmp/veiling.db")
 
 
 # ── Admin-sessie: gesigneerd cookie (geen server-side state nodig) ────────────
@@ -154,7 +158,10 @@ except Exception:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    try:
+        init_db()
+    except Exception:
+        pass
     yield
 
 app = FastAPI(lifespan=lifespan)
