@@ -338,19 +338,27 @@ async def product_info(request: Request):
             if len(image_urls) >= 5:
                 break
             results = list(DDGS().images(query, max_results=20))
-            results.sort(key=lambda r: 0 if ".png" in r.get("image", "").lower() else 1)
+            check_field = "thumbnail" if IS_VERCEL else "image"
+            results.sort(key=lambda r: 0 if ".png" in r.get(check_field, "").lower() else 1)
             for r in results:
                 if len(image_urls) >= 5:
                     break
                 ext_url   = r.get("image", "")
                 thumb_url = r.get("thumbnail", "")
-                # Op Vercel: thumbnail (Bing CDN) als ext_url geen absolute https-URL is
                 if IS_VERCEL:
-                    use_url = ext_url if ext_url.startswith("https://") else thumb_url
+                    # Op Vercel: geef voorkeur aan Bing CDN thumbnail (tse*.mm.bing.net).
+                    # Die zijn altijd absoluut https + vrij van hotlink-blokkering.
+                    # Externe image-URL kan relatief of geblokkeerd zijn.
+                    if thumb_url.startswith("https://"):
+                        use_url = thumb_url
+                    elif ext_url.startswith("https://"):
+                        use_url = ext_url
+                    else:
+                        continue
                 else:
+                    if not ext_url.startswith("https://"):
+                        continue
                     use_url = ext_url
-                if not use_url.startswith("https://"):
-                    continue
                 try:
                     local = probeer_download(use_url)
                     if local and local not in image_urls:
@@ -417,7 +425,11 @@ async def image_proxy(url: str):
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; ToschVeiling/1.0)"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": "https://www.bing.com/",
+                "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+            },
         )
         with urllib.request.urlopen(req, timeout=8) as r:
             content      = r.read()
