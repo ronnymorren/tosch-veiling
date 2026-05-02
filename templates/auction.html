@@ -327,8 +327,10 @@
       }
       // Eerste bod mag gelijk zijn aan de startprijs; daarna altijd + min_increment
       const heeftBiedingen = data.bids && data.bids.length > 0;
-      minBedrag     = heeftBiedingen ? data.current_price + data.min_increment : data.start_price;
-      currentBedrag = minBedrag;
+      minBedrag = heeftBiedingen ? data.current_price + data.min_increment : data.start_price;
+      // Alleen resetten als de gebruiker nog niets heeft aangepast,
+      // of als iemand anders heeft overboden waardoor zijn bedrag te laag is geworden
+      if (currentBedrag < minBedrag) currentBedrag = minBedrag;
       document.getElementById('minBiedstap').textContent  = fmtEuro(data.min_increment);
       document.getElementById('minBodLabel').textContent  = 'Minimum bod: ' + fmtEuro(minBedrag);
       document.getElementById('bedragDisplay').textContent = fmtPlain(currentBedrag);
