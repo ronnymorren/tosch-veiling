@@ -454,7 +454,7 @@
       document.getElementById('biedNaam').value = mijnNaam;
 
       if (data.status === 'ended') toonAfgelopen(data.winner, data.current_price, false);
-      verbindWS();
+      else startPolling();
     }
 
     function updateBod(data) {
@@ -621,17 +621,22 @@
       }
     }
 
-    // ── WebSocket ──────────────────────────────────────────────────────────────
-    function verbindWS() {
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const socket = new WebSocket(`${proto}://${location.host}/ws/${AUCTION_ID}`);
+    // ── Polling (vervangt WebSocket — werkt ook op Vercel serverless) ────────
+    let pollInterval = null;
 
-      socket.onmessage = async () => {
-        // Onthoud wie er nu bovenaan staat vóór de update
-        const prevLeider = auctionData?.bids?.[0]?.bidder_name || null;
+    function startPolling() {
+      if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(peilVeiling, 3000);
+    }
 
-        const res  = await fetch(`/api/auction/${AUCTION_ID}`);
+    async function peilVeiling() {
+      try {
+        const res = await fetch(`/api/auction/${AUCTION_ID}`);
+        if (!res.ok) return;
         const data = await res.json();
+
+        const prevLeider = auctionData?.bids?.[0]?.bidder_name || null;
+        const prevBod    = auctionData?.current_price;
         auctionData = data;
 
         const nieuweLeider = data.bids?.[0]?.bidder_name || null;
@@ -648,17 +653,19 @@
         updateBod(data);
         updateBidHistory(data.bids);
 
-        const el = document.getElementById('huidigBodBedrag');
-        el.classList.add('flash-green');
-        setTimeout(() => el.classList.remove('flash-green'), 800);
+        // Flash alleen als het bod daadwerkelijk veranderd is
+        if (data.current_price !== prevBod) {
+          const el = document.getElementById('huidigBodBedrag');
+          el.classList.add('flash-green');
+          setTimeout(() => el.classList.remove('flash-green'), 800);
+        }
 
-        // Veiling zojuist afgelopen?
+        // Veiling afgelopen?
         if (data.status === 'ended') {
+          clearInterval(pollInterval);
           toonAfgelopen(data.winner, data.current_price, true);
         }
-      };
-
-      socket.onclose = () => setTimeout(verbindWS, 3000);
+      } catch { /* stil falen, volgende poll probeert het opnieuw */ }
     }
 
     // ── 🔔 Browser-notificatie ─────────────────────────────────────────────────

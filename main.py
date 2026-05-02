@@ -1,48 +1,70 @@
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
-import sqlite3
 import secrets
+import sqlite3
 import string
+import time
 import urllib.request
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List
-from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
-from dotenv import load_dotenv
 import anthropic
 from ddgs import DDGS
 
-load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")          # gedeelde keys
-load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)          # project-specifiek
+# ── Configuratie ──────────────────────────────────────────────────────────────
 
-DB_PATH        = Path(__file__).parent / "veiling.db"
+load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")   # gedeelde keys
+load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)  # project-specifiek
+
+IS_VERCEL      = bool(os.environ.get("VERCEL"))
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tosch2024")
 SESSION_COOKIE = "tosch_admin"
 SESSION_TTL    = 8 * 3600   # 8 uur
 
-# In-memory admin-sessies  {token: verlooptijd}
-admin_sessions: Dict[str, datetime] = {}
+# Op Vercel: /tmp (ephemeral); lokaal: naast main.py
+DB_PATH = Path("/tmp/veiling.db") if IS_VERCEL else Path(__file__).parent / "veiling.db"
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Admin-sessie: gesigneerd cookie (geen server-side state nodig) ────────────
+# Werkt op serverless omdat er geen in-memory dict nodig is.
+
+def _sign(ts: str) -> str:
+    return hmac.new(ADMIN_PASSWORD.encode(), ts.encode(), hashlib.sha256).hexdigest()[:24]
+
+def maak_admin_token() -> str:
+    ts  = str(int(time.time()))
+    raw = f"{ts}.{_sign(ts)}"
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 def is_admin(request: Request) -> bool:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return False
-    exp = admin_sessions.get(token)
-    return bool(exp and datetime.now() < exp)
+    try:
+        padded  = token + "=" * (4 - len(token) % 4)
+        decoded = base64.urlsafe_b64decode(padded).decode()
+        ts_str, sig = decoded.rsplit(".", 1)
+        if int(time.time()) - int(ts_str) > SESSION_TTL:
+            return False
+        return hmac.compare_digest(sig, _sign(ts_str))
+    except Exception:
+        return False
 
+
+# ── E-mail helper ─────────────────────────────────────────────────────────────
 
 def stuur_email(to: str, subject: str, html_body: str, text_body: str):
-    """Verstuur e-mail via SMTP2GO HTTP API."""
     payload = json.dumps({
         "api_key":   os.getenv("SMTP2GO_API_KEY", ""),
         "to":        [to],
@@ -88,7 +110,6 @@ def init_db():
             allowed_domains            TEXT    DEFAULT ''
         )
     """)
-    # Migratie voor bestaande databases
     for col, dfn in [
         ("require_email_verification", "INTEGER DEFAULT 0"),
         ("allowed_domains",            "TEXT DEFAULT ''"),
@@ -99,7 +120,6 @@ def init_db():
             conn.commit()
         except Exception:
             pass
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bids (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,32 +143,11 @@ def init_db():
     conn.commit()
     conn.close()
 
-
-# ── WebSocket manager ─────────────────────────────────────────────────────────
-
-class ConnectionManager:
-    def __init__(self):
-        self.active: Dict[int, List[WebSocket]] = {}
-
-    async def connect(self, auction_id: int, ws: WebSocket):
-        await ws.accept()
-        self.active.setdefault(auction_id, []).append(ws)
-
-    def disconnect(self, auction_id: int, ws: WebSocket):
-        if auction_id in self.active:
-            self.active[auction_id] = [w for w in self.active[auction_id] if w != ws]
-
-    async def broadcast(self, auction_id: int, data: dict):
-        dead = []
-        for ws in self.active.get(auction_id, []):
-            try:
-                await ws.send_json(data)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(auction_id, ws)
-
-manager = ConnectionManager()
+# Direct initialiseren bij import (fallback voor Vercel zonder lifespan)
+try:
+    init_db()
+except Exception:
+    pass
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -192,10 +191,8 @@ async def admin_login_post(request: Request):
             {"error": "Verkeerd wachtwoord. Probeer opnieuw.", "next": next_url},
             status_code=401)
 
-    token = secrets.token_hex(32)
-    admin_sessions[token] = datetime.now() + timedelta(seconds=SESSION_TTL)
-
-    resp = RedirectResponse(url=next_url, status_code=303)
+    token = maak_admin_token()
+    resp  = RedirectResponse(url=next_url, status_code=303)
     resp.set_cookie(SESSION_COOKIE, token, httponly=True, max_age=SESSION_TTL, samesite="lax")
     return resp
 
@@ -238,7 +235,6 @@ async def admin_overzicht(request: Request):
             actief.append(d)
     return templates.TemplateResponse(request, "admin_overzicht.html",
         {"auctions": actief, "archief": archief})
-
 
 @app.get("/veiling/{auction_id}", response_class=HTMLResponse)
 async def auction_page(request: Request, auction_id: int):
@@ -287,7 +283,7 @@ async def product_info(request: Request):
             )
         }]
     )
-    raw = response.content[0].text
+    raw   = response.content[0].text
     match = re.search(r'\{.*\}', raw, re.DOTALL)
     try:
         product_data = json.loads(match.group()) if match else {}
@@ -295,11 +291,14 @@ async def product_info(request: Request):
         product_data = {}
 
     beschrijving = product_data.get("beschrijving", product_name)
-    specs = product_data.get("specs", [])
+    specs        = product_data.get("specs", [])
 
-    image_url = ""
+    # Afbeeldingen zoeken
+    # Op Vercel: externe URL direct gebruiken (geen schrijftoegang buiten /tmp)
+    # Lokaal: downloaden naar static/images/
     img_dir = BASE / "static" / "images"
-    img_dir.mkdir(exist_ok=True)
+    if not IS_VERCEL:
+        img_dir.mkdir(exist_ok=True)
 
     zoekqueries = [
         f"{product_name} product white background PNG",
@@ -308,16 +307,18 @@ async def product_info(request: Request):
     ]
 
     def probeer_download(url: str) -> str:
-        ext = ".png" if ".png" in url.lower() else ".jpg"
+        if IS_VERCEL:
+            return url  # externe URL direct bewaren
+        ext   = ".png" if ".png" in url.lower() else ".jpg"
         fname = secrets.token_hex(8) + ext
         dest  = img_dir / fname
         req   = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=5) as resp:
-            data = resp.read()
-        if len(data) < 5000:
+            raw_data = resp.read()
+        if len(raw_data) < 5000:
             return ""
         with open(dest, "wb") as f:
-            f.write(data)
+            f.write(raw_data)
         return f"/static/images/{fname}"
 
     image_urls = []
@@ -346,7 +347,7 @@ async def product_info(request: Request):
         "beschrijving": beschrijving,
         "specs":        specs,
         "image_urls":   image_urls,
-        "image_url":    image_urls[0] if image_urls else "",  # backward compat
+        "image_url":    image_urls[0] if image_urls else "",
     })
 
 
@@ -393,7 +394,7 @@ async def create_auction(request: Request):
 @app.get("/api/auction/{auction_id}")
 async def get_auction(auction_id: int):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
+    row  = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
     bids = conn.execute(
         "SELECT * FROM bids WHERE auction_id = ? ORDER BY amount DESC LIMIT 20",
         (auction_id,)
@@ -425,7 +426,6 @@ async def get_auction(auction_id: int):
         "winner":                     winner,
         "bids":                       [dict(b) for b in bids],
         "require_email_verification": req_email,
-        # access_code alleen meesturen als er GEEN e-mailverificatie is
         "access_code":                row["access_code"] if not req_email else None,
     })
 
@@ -447,7 +447,6 @@ async def send_code(request: Request):
     if not row:
         raise HTTPException(404, "Veiling niet gevonden")
 
-    # Domeincontrole
     allowed_raw = (row["allowed_domains"] or "").strip()
     if allowed_raw:
         allowed = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
@@ -455,15 +454,11 @@ async def send_code(request: Request):
         if domain not in allowed:
             raise HTTPException(403, f"Alleen e-mailadressen van {', '.join(allowed)} zijn toegestaan")
 
-    # Code genereren
     code       = "".join(secrets.choice("0123456789") for _ in range(6))
     expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
 
     conn = get_conn()
-    conn.execute(
-        "DELETE FROM email_verifications WHERE email = ? AND auction_id = ?",
-        (email, auction_id)
-    )
+    conn.execute("DELETE FROM email_verifications WHERE email = ? AND auction_id = ?", (email, auction_id))
     conn.execute(
         "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (?, ?, ?, ?)",
         (email, auction_id, code, expires_at)
@@ -534,7 +529,6 @@ async def verify_code(request: Request):
 
     conn.execute("UPDATE email_verifications SET used = 1 WHERE id = ?", (row["id"],))
     conn.commit()
-
     auction = conn.execute("SELECT access_code FROM auctions WHERE id = ?", (auction_id,)).fetchone()
     conn.close()
 
@@ -568,7 +562,6 @@ async def place_bid(request: Request):
         conn.close()
         raise HTTPException(status_code=400, detail="De veiling is al afgelopen")
 
-    # Eerste bod mag gelijk zijn aan de startprijs; daarna altijd + min_increment
     heeft_biedingen = conn.execute(
         "SELECT 1 FROM bids WHERE auction_id = ? LIMIT 1", (auction_id,)
     ).fetchone() is not None
@@ -586,13 +579,6 @@ async def place_bid(request: Request):
     conn.commit()
     conn.close()
 
-    await manager.broadcast(auction_id, {
-        "type":        "new_bid",
-        "bidder_name": bidder_name,
-        "amount":      amount,
-        "timestamp":   timestamp,
-    })
-
     return JSONResponse({"success": True})
 
 
@@ -604,7 +590,7 @@ async def delete_bid(bid_id: int, request: Request):
         raise HTTPException(status_code=403, detail="Geen toegang")
 
     conn = get_conn()
-    bid = conn.execute("SELECT * FROM bids WHERE id = ?", (bid_id,)).fetchone()
+    bid  = conn.execute("SELECT * FROM bids WHERE id = ?", (bid_id,)).fetchone()
     if not bid:
         conn.close()
         raise HTTPException(status_code=404, detail="Bod niet gevonden")
@@ -612,45 +598,17 @@ async def delete_bid(bid_id: int, request: Request):
     auction_id = bid["auction_id"]
     conn.execute("DELETE FROM bids WHERE id = ?", (bid_id,))
 
-    # Herbereken current_price
-    top = conn.execute(
-        "SELECT MAX(amount) as top FROM bids WHERE auction_id = ?", (auction_id,)
-    ).fetchone()
+    top     = conn.execute("SELECT MAX(amount) as top FROM bids WHERE auction_id = ?", (auction_id,)).fetchone()
     auction = conn.execute("SELECT start_price FROM auctions WHERE id = ?", (auction_id,)).fetchone()
     new_price = top["top"] if top["top"] is not None else auction["start_price"]
     conn.execute("UPDATE auctions SET current_price = ? WHERE id = ?", (new_price, auction_id))
     conn.commit()
     conn.close()
 
-    # Stuur live update naar open veilingpagina's
-    await manager.broadcast(auction_id, {"type": "bid_deleted", "new_price": new_price})
-
     return JSONResponse({"ok": True, "new_price": new_price})
 
 
-# ── Admin: biedingenbeheer ────────────────────────────────────────────────────
-
-@app.get("/admin/veiling/{auction_id}/biedingen", response_class=HTMLResponse)
-async def admin_biedingen(request: Request, auction_id: int):
-    if not is_admin(request):
-        return RedirectResponse(url=f"/admin/login?next=/admin/veiling/{auction_id}/biedingen", status_code=303)
-    conn = get_conn()
-    auction = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
-    if not auction:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
-    bids = conn.execute(
-        "SELECT * FROM bids WHERE auction_id = ? ORDER BY amount DESC",
-        (auction_id,)
-    ).fetchall()
-    conn.close()
-    return templates.TemplateResponse(request, "admin_biedingen.html", {
-        "auction": dict(auction),
-        "bids":    [dict(b) for b in bids],
-    })
-
-
-# ── API: archiveren ──────────────────────────────────────────────────────────
+# ── API: archiveren ───────────────────────────────────────────────────────────
 
 @app.post("/api/auction/{auction_id}/archive")
 async def archive_auction(auction_id: int, request: Request):
@@ -673,13 +631,24 @@ async def unarchive_auction(auction_id: int, request: Request):
     return JSONResponse({"ok": True})
 
 
-# ── WebSocket ─────────────────────────────────────────────────────────────────
+# ── Admin: biedingenbeheer ────────────────────────────────────────────────────
 
-@app.websocket("/ws/{auction_id}")
-async def ws_endpoint(websocket: WebSocket, auction_id: int):
-    await manager.connect(auction_id, websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(auction_id, websocket)
+@app.get("/admin/veiling/{auction_id}/biedingen", response_class=HTMLResponse)
+async def admin_biedingen(request: Request, auction_id: int):
+    if not is_admin(request):
+        return RedirectResponse(
+            url=f"/admin/login?next=/admin/veiling/{auction_id}/biedingen", status_code=303
+        )
+    conn    = get_conn()
+    auction = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
+    if not auction:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+    bids = conn.execute(
+        "SELECT * FROM bids WHERE auction_id = ? ORDER BY amount DESC", (auction_id,)
+    ).fetchall()
+    conn.close()
+    return templates.TemplateResponse(request, "admin_biedingen.html", {
+        "auction": dict(auction),
+        "bids":    [dict(b) for b in bids],
+    })
