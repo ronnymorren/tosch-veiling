@@ -378,19 +378,6 @@ async def auction_page(request: Request, auction_id: int):
     })
 
 
-# ── API: veiling zoeken op code ───────────────────────────────────────────────
-
-@app.get("/api/find")
-async def find_auction(code: str):
-    code = code.strip().upper()
-    conn = get_conn()
-    cur  = get_cur(conn)
-    cur.execute("SELECT id FROM auctions WHERE access_code = %s", (code,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Code niet gevonden")
-    return JSONResponse({"auction_id": row["id"]})
 
 
 # ── API: product info (AI + foto) ─────────────────────────────────────────────
@@ -633,117 +620,6 @@ async def get_auction(auction_id: int):
         "require_email_verification": req_email,
         "access_code":                row["access_code"] if not req_email else None,
     })
-
-
-# ── API: e-mailverificatie – code versturen ───────────────────────────────────
-
-@app.post("/api/auth/send-code")
-async def send_code(request: Request):
-    data       = await request.json()
-    email      = data.get("email", "").strip().lower()
-    auction_id = int(data.get("auction_id", 0))
-
-    if not email or "@" not in email or "." not in email.split("@")[-1]:
-        raise HTTPException(400, "Ongeldig e-mailadres")
-
-    conn = get_conn()
-    cur  = get_cur(conn)
-    cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(404, "Veiling niet gevonden")
-
-    allowed_raw = (row["allowed_domains"] or "").strip()
-    if allowed_raw:
-        allowed = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
-        domain  = email.split("@")[1]
-        if domain not in allowed:
-            conn.close()
-            raise HTTPException(403, f"Alleen e-mailadressen van {', '.join(allowed)} zijn toegestaan")
-
-    code       = "".join(secrets.choice("0123456789") for _ in range(6))
-    expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
-
-    cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = %s", (email, auction_id))
-    cur.execute(
-        "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (%s, %s, %s, %s)",
-        (email, auction_id, code, expires_at)
-    )
-    conn.commit()
-    conn.close()
-
-    html = f"""
-    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">
-      <div style="background:#FF6F00;padding:20px 24px;border-radius:12px 12px 0 0">
-        <h1 style="color:#fff;margin:0;font-size:1.3rem;font-weight:800">Tosch Veiling</h1>
-      </div>
-      <div style="background:#fff;padding:32px 24px;border:1px solid #e5e7eb;border-radius:0 0 12px 12px">
-        <p style="color:#374151;margin:0 0 24px">
-          Gebruik onderstaande code om deel te nemen aan de veiling
-          <strong>{row['title']}</strong>:
-        </p>
-        <div style="background:#f9fafb;border:2px solid #e5e7eb;border-radius:12px;
-                    padding:28px;text-align:center;margin-bottom:24px">
-          <div style="font-size:2.8rem;font-weight:800;letter-spacing:14px;
-                      color:#111827;font-family:monospace">{code}</div>
-        </div>
-        <p style="color:#6b7280;font-size:.875rem;margin:0">
-          Deze code is 10 minuten geldig. Niet aangevraagd? Dan kun je deze mail negeren.
-        </p>
-      </div>
-    </div>"""
-
-    try:
-        stuur_email(
-            email,
-            f"Verificatiecode – {row['title']}",
-            html,
-            f"Uw verificatiecode: {code}\n\nGeldig voor 10 minuten.",
-        )
-    except Exception as e:
-        detail = str(e)
-        raise HTTPException(500, f"E-mail versturen mislukt: {detail}")
-
-    return JSONResponse({"ok": True})
-
-
-# ── API: e-mailverificatie – code controleren ─────────────────────────────────
-
-@app.post("/api/auth/verify-code")
-async def verify_code(request: Request):
-    data       = await request.json()
-    email      = data.get("email", "").strip().lower()
-    code       = data.get("code", "").strip()
-    auction_id = int(data.get("auction_id", 0))
-
-    conn = get_conn()
-    cur  = get_cur(conn)
-    cur.execute(
-        "SELECT * FROM email_verifications "
-        "WHERE email = %s AND auction_id = %s AND used = 0 "
-        "ORDER BY id DESC LIMIT 1",
-        (email, auction_id)
-    )
-    row = cur.fetchone()
-
-    if not row:
-        conn.close()
-        raise HTTPException(400, "Geen actieve code gevonden. Vraag een nieuwe code aan.")
-    if datetime.now() > datetime.fromisoformat(row["expires_at"]):
-        conn.close()
-        raise HTTPException(400, "Code verlopen. Vraag een nieuwe code aan.")
-    if row["code"] != code:
-        conn.close()
-        raise HTTPException(400, "Onjuiste code. Probeer opnieuw.")
-
-    cur.execute("UPDATE email_verifications SET used = 1 WHERE id = %s", (row["id"],))
-    conn.commit()
-    cur.execute("SELECT access_code FROM auctions WHERE id = %s", (auction_id,))
-    auction = cur.fetchone()
-    conn.close()
-
-    return JSONResponse({"ok": True, "access_code": auction["access_code"]})
 
 
 # ── API: globale login – code versturen ──────────────────────────────────────

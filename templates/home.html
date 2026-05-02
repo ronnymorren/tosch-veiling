@@ -113,8 +113,7 @@
     document.addEventListener('keydown', e => {
       if (e.key === 'Enter' && document.getElementById('stapCode').style.display !== 'none') {
         const focus = document.activeElement;
-        // alleen Enter op code-veld verwerken
-        if (focus && focus.id === 'loginCode') controleerCode();
+        if (focus && (focus.id === 'loginCode' || focus.id === 'loginNaam')) controleerCode();
       }
     });
 
