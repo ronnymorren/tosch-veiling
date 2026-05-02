@@ -27,13 +27,14 @@ from ddgs import DDGS
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")   # gedeelde keys
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)  # project-specifiek
 
-IS_VERCEL      = bool(os.environ.get("VERCEL"))
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tosch2024")
 SESSION_COOKIE = "tosch_admin"
 SESSION_TTL    = 8 * 3600   # 8 uur
 
-# Windows = lokale dev → naast main.py; Linux/Mac = Vercel/server → /tmp
-# (betrouwbaarder dan VERCEL env var die soms te laat beschikbaar is)
+# Windows = lokale dev; Linux/Mac = Vercel/server
+# os.name is betrouwbaarder dan VERCEL env var (soms te laat beschikbaar bij import)
+IS_VERCEL = os.name != "nt"
+
 if os.name == "nt":
     DB_PATH = Path(__file__).parent / "veiling.db"
 else:
