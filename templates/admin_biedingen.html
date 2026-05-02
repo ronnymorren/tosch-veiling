@@ -48,6 +48,8 @@
           <tr>
             <th>#</th>
             <th>Naam</th>
+            <th>E-mail</th>
+            <th>IP-adres</th>
             <th class="right">Bod</th>
             <th>Tijdstip</th>
             <th></th>
@@ -58,6 +60,8 @@
           <tr class="bied-rij {% if loop.first %}bied-rij-top{% endif %}" id="bid-{{ b.id }}">
             <td style="color:var(--gray-400);font-size:.8rem">{{ b.id }}</td>
             <td class="bied-naam">{{ b.bidder_name }}</td>
+            <td class="bied-datum">{{ b.email or '—' }}</td>
+            <td class="bied-datum" style="font-family:monospace;font-size:.8rem">{{ b.ip_address or '—' }}</td>
             <td class="bied-bedrag right">€ {{ "%.2f"|format(b.amount) }}</td>
             <td class="bied-datum">{{ b.timestamp[:16].replace("T", " ") }}</td>
             <td style="text-align:right">

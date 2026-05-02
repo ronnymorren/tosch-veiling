@@ -116,6 +116,48 @@ def stuur_email(to: str, subject: str, html_body: str, text_body: str):
         raise RuntimeError("SMTP2GO fout: " + str(result))
 
 
+# ── IP-adres helper ──────────────────────────────────────────────────────────
+
+def get_client_ip(request: Request) -> str:
+    """Haal het werkelijke IP-adres op (ook achter Vercel's proxy)."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+# ── Afloopmail ────────────────────────────────────────────────────────────────
+
+def stuur_afloop_mail(to: str, titel: str, winnaar: str, winnend_bod: float, is_winner: bool):
+    """Stuur een afloopmail naar een deelnemer. Winnaar krijgt felicitaties, rest een 'afgelopen'-melding."""
+    bod_str = f"€\xa0{winnend_bod:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    if is_winner:
+        onderwerp = f"🎉 Gefeliciteerd! Je hebt gewonnen — {titel}"
+        intro     = f"Gefeliciteerd, {winnaar}!<br><br>Je hebt de veiling <strong>{titel}</strong> gewonnen met het hoogste bod van <strong>{bod_str}</strong>."
+        intro_txt = f"Gefeliciteerd, {winnaar}!\n\nJe hebt de veiling '{titel}' gewonnen met het hoogste bod van {bod_str}."
+    else:
+        onderwerp = f"Veiling afgelopen — {titel}"
+        intro     = f"De veiling <strong>{titel}</strong> is afgelopen. De winnaar is <strong>{winnaar}</strong> met een bod van <strong>{bod_str}</strong>. Helaas was jouw bod niet het hoogste."
+        intro_txt = f"De veiling '{titel}' is afgelopen.\n\nDe winnaar is {winnaar} met een bod van {bod_str}.\nHelaas was jouw bod niet het hoogste."
+
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">
+      <div style="background:#FF6F00;padding:20px 24px;border-radius:12px 12px 0 0">
+        <h1 style="color:#fff;margin:0;font-size:1.3rem;font-weight:800">Tosch Veiling</h1>
+      </div>
+      <div style="background:#fff;padding:32px 24px;border:1px solid #e5e7eb;border-radius:0 0 12px 12px">
+        <p style="color:#374151;margin:0 0 24px">{intro}</p>
+        <p style="color:#6b7280;font-size:.875rem;margin:0">
+          Bedankt voor jouw deelname. Houd onze volgende veilingen in de gaten via
+          <a href="https://veiling.tosch.eu" style="color:#FF6F00">veiling.tosch.eu</a>.
+        </p>
+      </div>
+    </div>"""
+
+    stuur_email(to, onderwerp, html, intro_txt)
+
+
 # ── Database ──────────────────────────────────────────────────────────────────
 
 def get_conn():
@@ -142,9 +184,11 @@ def init_db():
             status                     TEXT    DEFAULT 'active',
             require_email_verification INTEGER DEFAULT 0,
             allowed_domains            TEXT    DEFAULT '',
-            archived                   INTEGER DEFAULT 0
+            archived                   INTEGER DEFAULT 0,
+            notified                   INTEGER DEFAULT 0
         )
     """)
+    cur.execute("ALTER TABLE auctions ADD COLUMN IF NOT EXISTS notified INTEGER DEFAULT 0")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bids (
             id          SERIAL  PRIMARY KEY,
@@ -152,9 +196,14 @@ def init_db():
             bidder_name TEXT    NOT NULL,
             amount      FLOAT   NOT NULL,
             timestamp   TEXT    NOT NULL,
+            email       TEXT,
+            ip_address  TEXT,
             FOREIGN KEY (auction_id) REFERENCES auctions(id)
         )
     """)
+    # Migratie: kolommen toevoegen als ze nog niet bestaan
+    cur.execute("ALTER TABLE bids ADD COLUMN IF NOT EXISTS email TEXT")
+    cur.execute("ALTER TABLE bids ADD COLUMN IF NOT EXISTS ip_address TEXT")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS email_verifications (
             id         SERIAL  PRIMARY KEY,
@@ -518,15 +567,16 @@ async def get_auction(auction_id: int):
     cur  = get_cur(conn)
     cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
     row = cur.fetchone()
+
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+
     cur.execute(
         "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC LIMIT 20",
         (auction_id,)
     )
     bids = cur.fetchall()
-    conn.close()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
 
     end_time  = datetime.fromisoformat(row["end_time"])
     is_ended  = datetime.now() > end_time or row["status"] == "ended"
@@ -535,6 +585,37 @@ async def get_auction(auction_id: int):
     winner = None
     if is_ended and bids:
         winner = bids[0]["bidder_name"]
+
+    # ── Afloopmail: één keer versturen zodra de veiling eindigt ──────────────
+    if is_ended and bids and not row["notified"]:
+        # Atomisch: alleen de instantie die notified van 0→1 zet stuurt de mails
+        cur.execute(
+            "UPDATE auctions SET notified = 1 WHERE id = %s AND notified = 0",
+            (row["id"],)
+        )
+        conn.commit()
+        if cur.rowcount > 0:
+            # Verzamel alle deelnemers met een e-mailadres
+            cur.execute(
+                "SELECT DISTINCT email, bidder_name FROM bids WHERE auction_id = %s AND email IS NOT NULL",
+                (row["id"],)
+            )
+            deelnemers = cur.fetchall()
+            winnend_bod   = bids[0]["amount"]
+            winnaar_email = bids[0].get("email")
+            for d in deelnemers:
+                try:
+                    stuur_afloop_mail(
+                        to          = d["email"],
+                        titel       = row["title"],
+                        winnaar     = winner,
+                        winnend_bod = winnend_bod,
+                        is_winner   = (d["email"] == winnaar_email),
+                    )
+                except Exception:
+                    pass  # Mail mislukt? Niet fataal
+
+    conn.close()
 
     return JSONResponse({
         "id":                         row["id"],
@@ -826,10 +907,11 @@ async def place_bid(request: Request):
         conn.close()
         raise HTTPException(status_code=400, detail=f"Minimaal bod is €{min_bid:.2f}")
 
-    timestamp = datetime.now().isoformat()
+    timestamp  = datetime.now().isoformat()
+    ip_address = get_client_ip(request)
     cur.execute(
-        "INSERT INTO bids (auction_id, bidder_name, amount, timestamp) VALUES (%s, %s, %s, %s)",
-        (auction_id, bidder_name, amount, timestamp)
+        "INSERT INTO bids (auction_id, bidder_name, amount, timestamp, email, ip_address) VALUES (%s, %s, %s, %s, %s, %s)",
+        (auction_id, bidder_name, amount, timestamp, email, ip_address)
     )
     cur.execute("UPDATE auctions SET current_price = %s WHERE id = %s", (amount, auction_id))
     conn.commit()
