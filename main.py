@@ -5,7 +5,6 @@ import json
 import os
 import re
 import secrets
-import sqlite3
 import string
 import time
 import urllib.request
@@ -13,6 +12,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import psycopg2
+import psycopg2.extras
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -30,19 +31,13 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)  # projec
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tosch2024")
 SESSION_COOKIE = "tosch_admin"
 SESSION_TTL    = 8 * 3600   # 8 uur
+DATABASE_URL   = os.getenv("DATABASE_URL", "")
 
-# Windows = lokale dev; Linux/Mac = Vercel/server
-# os.name is betrouwbaarder dan VERCEL env var (soms te laat beschikbaar bij import)
+# Windows = lokale dev; Linux/Mac = Vercel/server (voor afbeeldingslogica)
 IS_VERCEL = os.name != "nt"
-
-if os.name == "nt":
-    DB_PATH = Path(__file__).parent / "veiling.db"
-else:
-    DB_PATH = Path("/tmp/veiling.db")
 
 
 # ── Admin-sessie: gesigneerd cookie (geen server-side state nodig) ────────────
-# Werkt op serverless omdat er geen in-memory dict nodig is.
 
 def _sign(ts: str) -> str:
     return hmac.new(ADMIN_PASSWORD.encode(), ts.encode(), hashlib.sha256).hexdigest()[:24]
@@ -92,52 +87,45 @@ def stuur_email(to: str, subject: str, html_body: str, text_body: str):
 # ── Database ──────────────────────────────────────────────────────────────────
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(DATABASE_URL)
+
+def get_cur(conn):
+    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
 def init_db():
     conn = get_conn()
-    conn.execute("""
+    cur  = get_cur(conn)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS auctions (
-            id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                         SERIAL  PRIMARY KEY,
             title                      TEXT    NOT NULL,
             description                TEXT,
             image_url                  TEXT,
             specs                      TEXT,
-            start_price                REAL    NOT NULL,
-            current_price              REAL    NOT NULL,
-            min_increment              REAL    DEFAULT 1.0,
+            start_price                FLOAT   NOT NULL,
+            current_price              FLOAT   NOT NULL,
+            min_increment              FLOAT   DEFAULT 1.0,
             end_time                   TEXT    NOT NULL,
             access_code                TEXT    UNIQUE NOT NULL,
             status                     TEXT    DEFAULT 'active',
             require_email_verification INTEGER DEFAULT 0,
-            allowed_domains            TEXT    DEFAULT ''
+            allowed_domains            TEXT    DEFAULT '',
+            archived                   INTEGER DEFAULT 0
         )
     """)
-    for col, dfn in [
-        ("require_email_verification", "INTEGER DEFAULT 0"),
-        ("allowed_domains",            "TEXT DEFAULT ''"),
-        ("archived",                   "INTEGER DEFAULT 0"),
-    ]:
-        try:
-            conn.execute(f"ALTER TABLE auctions ADD COLUMN {col} {dfn}")
-            conn.commit()
-        except Exception:
-            pass
-    conn.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS bids (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL  PRIMARY KEY,
             auction_id  INTEGER NOT NULL,
             bidder_name TEXT    NOT NULL,
-            amount      REAL    NOT NULL,
+            amount      FLOAT   NOT NULL,
             timestamp   TEXT    NOT NULL,
             FOREIGN KEY (auction_id) REFERENCES auctions(id)
         )
     """)
-    conn.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS email_verifications (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL  PRIMARY KEY,
             email      TEXT    NOT NULL,
             auction_id INTEGER NOT NULL,
             code       TEXT    NOT NULL,
@@ -148,7 +136,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Direct initialiseren bij import (fallback voor Vercel zonder lifespan)
+# Direct initialiseren bij import
 try:
     init_db()
 except Exception:
@@ -224,13 +212,15 @@ async def admin_overzicht(request: Request):
     if not is_admin(request):
         return RedirectResponse(url="/admin/login?next=/admin/overzicht", status_code=303)
     conn = get_conn()
-    rows = conn.execute("""
+    cur  = get_cur(conn)
+    cur.execute("""
         SELECT a.*, COUNT(b.id) as bid_count
         FROM auctions a
         LEFT JOIN bids b ON b.auction_id = a.id
         GROUP BY a.id
         ORDER BY a.id DESC
-    """).fetchall()
+    """)
+    rows = cur.fetchall()
     conn.close()
     now = datetime.now().isoformat()
     actief, archief = [], []
@@ -247,7 +237,9 @@ async def admin_overzicht(request: Request):
 @app.get("/veiling/{auction_id}", response_class=HTMLResponse)
 async def auction_page(request: Request, auction_id: int):
     conn = get_conn()
-    row = conn.execute("SELECT id FROM auctions WHERE id = ?", (auction_id,)).fetchone()
+    cur  = get_cur(conn)
+    cur.execute("SELECT id FROM auctions WHERE id = %s", (auction_id,))
+    row = cur.fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
@@ -260,7 +252,9 @@ async def auction_page(request: Request, auction_id: int):
 async def find_auction(code: str):
     code = code.strip().upper()
     conn = get_conn()
-    row = conn.execute("SELECT id FROM auctions WHERE access_code = ?", (code,)).fetchone()
+    cur  = get_cur(conn)
+    cur.execute("SELECT id FROM auctions WHERE access_code = %s", (code,))
+    row = cur.fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Code niet gevonden")
@@ -301,9 +295,6 @@ async def product_info(request: Request):
     beschrijving = product_data.get("beschrijving", product_name)
     specs        = product_data.get("specs", [])
 
-    # Afbeeldingen zoeken
-    # Op Vercel: externe URL direct gebruiken (geen schrijftoegang buiten /tmp)
-    # Lokaal: downloaden naar static/images/
     img_dir = BASE / "static" / "images"
     if not IS_VERCEL:
         img_dir.mkdir(exist_ok=True)
@@ -315,11 +306,10 @@ async def product_info(request: Request):
     ]
 
     def probeer_download(url: str) -> str:
-        # Strenge validatie: alleen absolute https-URLs accepteren
         if not url.startswith("https://"):
             return ""
         if IS_VERCEL:
-            return url  # externe URL direct bewaren
+            return url
         ext   = ".png" if ".png" in url.lower() else ".jpg"
         fname = secrets.token_hex(8) + ext
         dest  = img_dir / fname
@@ -346,9 +336,6 @@ async def product_info(request: Request):
                 ext_url   = r.get("image", "")
                 thumb_url = r.get("thumbnail", "")
                 if IS_VERCEL:
-                    # Op Vercel: geef voorkeur aan Bing CDN thumbnail (tse*.mm.bing.net).
-                    # Die zijn altijd absoluut https + vrij van hotlink-blokkering.
-                    # Externe image-URL kan relatief of geblokkeerd zijn.
                     if thumb_url.startswith("https://"):
                         use_url = thumb_url
                     elif ext_url.startswith("https://"):
@@ -388,12 +375,14 @@ async def create_auction(request: Request):
     access_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
 
     conn = get_conn()
-    cursor = conn.execute("""
+    cur  = get_cur(conn)
+    cur.execute("""
         INSERT INTO auctions
             (title, description, image_url, specs, start_price, current_price,
              min_increment, end_time, access_code,
              require_email_verification, allowed_domains)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
     """, (
         data["title"],
         data.get("description", ""),
@@ -407,14 +396,12 @@ async def create_auction(request: Request):
         1 if data.get("require_email_verification") else 0,
         data.get("allowed_domains", "").strip(),
     ))
-    auction_id = cursor.lastrowid
+    auction_id = cur.fetchone()["id"]
     conn.commit()
     conn.close()
 
     return JSONResponse({"auction_id": auction_id, "access_code": access_code})
 
-
-# ── API: veiling ophalen ──────────────────────────────────────────────────────
 
 # ── API: image proxy (omzeilt hotlink-beveiliging van externe URLs) ───────────
 
@@ -440,14 +427,19 @@ async def image_proxy(url: str):
         raise HTTPException(404, "Afbeelding niet beschikbaar")
 
 
+# ── API: veiling ophalen ──────────────────────────────────────────────────────
+
 @app.get("/api/auction/{auction_id}")
 async def get_auction(auction_id: int):
     conn = get_conn()
-    row  = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
-    bids = conn.execute(
-        "SELECT * FROM bids WHERE auction_id = ? ORDER BY amount DESC LIMIT 20",
+    cur  = get_cur(conn)
+    cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
+    row = cur.fetchone()
+    cur.execute(
+        "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC LIMIT 20",
         (auction_id,)
-    ).fetchall()
+    )
+    bids = cur.fetchall()
     conn.close()
 
     if not row:
@@ -491,9 +483,11 @@ async def send_code(request: Request):
         raise HTTPException(400, "Ongeldig e-mailadres")
 
     conn = get_conn()
-    row  = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
-    conn.close()
+    cur  = get_cur(conn)
+    cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
+    row = cur.fetchone()
     if not row:
+        conn.close()
         raise HTTPException(404, "Veiling niet gevonden")
 
     allowed_raw = (row["allowed_domains"] or "").strip()
@@ -501,15 +495,15 @@ async def send_code(request: Request):
         allowed = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
         domain  = email.split("@")[1]
         if domain not in allowed:
+            conn.close()
             raise HTTPException(403, f"Alleen e-mailadressen van {', '.join(allowed)} zijn toegestaan")
 
     code       = "".join(secrets.choice("0123456789") for _ in range(6))
     expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
 
-    conn = get_conn()
-    conn.execute("DELETE FROM email_verifications WHERE email = ? AND auction_id = ?", (email, auction_id))
-    conn.execute(
-        "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (?, ?, ?, ?)",
+    cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = %s", (email, auction_id))
+    cur.execute(
+        "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (%s, %s, %s, %s)",
         (email, auction_id, code, expires_at)
     )
     conn.commit()
@@ -544,7 +538,6 @@ async def send_code(request: Request):
             f"Uw verificatiecode: {code}\n\nGeldig voor 10 minuten.",
         )
     except Exception as e:
-        # Geef de exacte SMTP2GO-fout terug zodat problemen zichtbaar zijn
         detail = str(e)
         raise HTTPException(500, f"E-mail versturen mislukt: {detail}")
 
@@ -561,12 +554,14 @@ async def verify_code(request: Request):
     auction_id = int(data.get("auction_id", 0))
 
     conn = get_conn()
-    row  = conn.execute(
+    cur  = get_cur(conn)
+    cur.execute(
         "SELECT * FROM email_verifications "
-        "WHERE email = ? AND auction_id = ? AND used = 0 "
+        "WHERE email = %s AND auction_id = %s AND used = 0 "
         "ORDER BY id DESC LIMIT 1",
         (email, auction_id)
-    ).fetchone()
+    )
+    row = cur.fetchone()
 
     if not row:
         conn.close()
@@ -578,9 +573,10 @@ async def verify_code(request: Request):
         conn.close()
         raise HTTPException(400, "Onjuiste code. Probeer opnieuw.")
 
-    conn.execute("UPDATE email_verifications SET used = 1 WHERE id = ?", (row["id"],))
+    cur.execute("UPDATE email_verifications SET used = 1 WHERE id = %s", (row["id"],))
     conn.commit()
-    auction = conn.execute("SELECT access_code FROM auctions WHERE id = ?", (auction_id,)).fetchone()
+    cur.execute("SELECT access_code FROM auctions WHERE id = %s", (auction_id,))
+    auction = cur.fetchone()
     conn.close()
 
     return JSONResponse({"ok": True, "access_code": auction["access_code"]})
@@ -600,7 +596,9 @@ async def place_bid(request: Request):
         raise HTTPException(status_code=400, detail="Vul je naam in")
 
     conn = get_conn()
-    row  = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
+    cur  = get_cur(conn)
+    cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
@@ -613,20 +611,19 @@ async def place_bid(request: Request):
         conn.close()
         raise HTTPException(status_code=400, detail="De veiling is al afgelopen")
 
-    heeft_biedingen = conn.execute(
-        "SELECT 1 FROM bids WHERE auction_id = ? LIMIT 1", (auction_id,)
-    ).fetchone() is not None
+    cur.execute("SELECT 1 FROM bids WHERE auction_id = %s LIMIT 1", (auction_id,))
+    heeft_biedingen = cur.fetchone() is not None
     min_bid = (row["current_price"] + row["min_increment"]) if heeft_biedingen else row["start_price"]
     if amount < min_bid:
         conn.close()
         raise HTTPException(status_code=400, detail=f"Minimaal bod is €{min_bid:.2f}")
 
     timestamp = datetime.now().isoformat()
-    conn.execute(
-        "INSERT INTO bids (auction_id, bidder_name, amount, timestamp) VALUES (?, ?, ?, ?)",
+    cur.execute(
+        "INSERT INTO bids (auction_id, bidder_name, amount, timestamp) VALUES (%s, %s, %s, %s)",
         (auction_id, bidder_name, amount, timestamp)
     )
-    conn.execute("UPDATE auctions SET current_price = ? WHERE id = ?", (amount, auction_id))
+    cur.execute("UPDATE auctions SET current_price = %s WHERE id = %s", (amount, auction_id))
     conn.commit()
     conn.close()
 
@@ -641,18 +638,21 @@ async def delete_bid(bid_id: int, request: Request):
         raise HTTPException(status_code=403, detail="Geen toegang")
 
     conn = get_conn()
-    bid  = conn.execute("SELECT * FROM bids WHERE id = ?", (bid_id,)).fetchone()
+    cur  = get_cur(conn)
+    cur.execute("SELECT * FROM bids WHERE id = %s", (bid_id,))
+    bid = cur.fetchone()
     if not bid:
         conn.close()
         raise HTTPException(status_code=404, detail="Bod niet gevonden")
 
     auction_id = bid["auction_id"]
-    conn.execute("DELETE FROM bids WHERE id = ?", (bid_id,))
-
-    top     = conn.execute("SELECT MAX(amount) as top FROM bids WHERE auction_id = ?", (auction_id,)).fetchone()
-    auction = conn.execute("SELECT start_price FROM auctions WHERE id = ?", (auction_id,)).fetchone()
+    cur.execute("DELETE FROM bids WHERE id = %s", (bid_id,))
+    cur.execute("SELECT MAX(amount) as top FROM bids WHERE auction_id = %s", (auction_id,))
+    top = cur.fetchone()
+    cur.execute("SELECT start_price FROM auctions WHERE id = %s", (auction_id,))
+    auction = cur.fetchone()
     new_price = top["top"] if top["top"] is not None else auction["start_price"]
-    conn.execute("UPDATE auctions SET current_price = ? WHERE id = ?", (new_price, auction_id))
+    cur.execute("UPDATE auctions SET current_price = %s WHERE id = %s", (new_price, auction_id))
     conn.commit()
     conn.close()
 
@@ -666,7 +666,8 @@ async def archive_auction(auction_id: int, request: Request):
     if not is_admin(request):
         raise HTTPException(status_code=403, detail="Geen toegang")
     conn = get_conn()
-    conn.execute("UPDATE auctions SET archived = 1 WHERE id = ?", (auction_id,))
+    cur  = get_cur(conn)
+    cur.execute("UPDATE auctions SET archived = 1 WHERE id = %s", (auction_id,))
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True})
@@ -676,7 +677,8 @@ async def unarchive_auction(auction_id: int, request: Request):
     if not is_admin(request):
         raise HTTPException(status_code=403, detail="Geen toegang")
     conn = get_conn()
-    conn.execute("UPDATE auctions SET archived = 0 WHERE id = ?", (auction_id,))
+    cur  = get_cur(conn)
+    cur.execute("UPDATE auctions SET archived = 0 WHERE id = %s", (auction_id,))
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True})
@@ -690,14 +692,17 @@ async def admin_biedingen(request: Request, auction_id: int):
         return RedirectResponse(
             url=f"/admin/login?next=/admin/veiling/{auction_id}/biedingen", status_code=303
         )
-    conn    = get_conn()
-    auction = conn.execute("SELECT * FROM auctions WHERE id = ?", (auction_id,)).fetchone()
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
+    auction = cur.fetchone()
     if not auction:
         conn.close()
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
-    bids = conn.execute(
-        "SELECT * FROM bids WHERE auction_id = ? ORDER BY amount DESC", (auction_id,)
-    ).fetchall()
+    cur.execute(
+        "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC", (auction_id,)
+    )
+    bids = cur.fetchall()
     conn.close()
     return templates.TemplateResponse(request, "admin_biedingen.html", {
         "auction": dict(auction),
