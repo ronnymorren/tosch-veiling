@@ -31,6 +31,8 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)  # projec
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tosch2024")
 SESSION_COOKIE = "tosch_admin"
 SESSION_TTL    = 8 * 3600   # 8 uur
+USER_COOKIE    = "tosch_user"
+USER_TTL       = 8 * 3600   # 8 uur
 DATABASE_URL   = os.getenv("DATABASE_URL", "")
 
 # Windows = lokale dev; Linux/Mac = Vercel/server (voor afbeeldingslogica)
@@ -60,6 +62,36 @@ def is_admin(request: Request) -> bool:
         return hmac.compare_digest(sig, _sign(ts_str))
     except Exception:
         return False
+
+
+# ── Bieder-sessie: gesigneerd cookie (geen server-side state) ─────────────────
+
+def maak_user_token(naam: str, email: str) -> str:
+    ts          = str(int(time.time()))
+    payload_str = json.dumps({"naam": naam, "email": email, "ts": ts}, separators=(',', ':'))
+    payload_b64 = base64.urlsafe_b64encode(payload_str.encode()).decode().rstrip("=")
+    sig         = hmac.new(ADMIN_PASSWORD.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()[:24]
+    raw         = f"{payload_b64}.{sig}"
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+def get_user(request: Request) -> dict | None:
+    token = request.cookies.get(USER_COOKIE)
+    if not token:
+        return None
+    try:
+        padded      = token + "=" * (4 - len(token) % 4)
+        decoded     = base64.urlsafe_b64decode(padded).decode()
+        payload_b64, sig = decoded.rsplit(".", 1)
+        expected    = hmac.new(ADMIN_PASSWORD.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()[:24]
+        if not hmac.compare_digest(sig, expected):
+            return None
+        padded2  = payload_b64 + "=" * (4 - len(payload_b64) % 4)
+        payload  = json.loads(base64.urlsafe_b64decode(padded2).decode())
+        if int(time.time()) - int(payload["ts"]) > USER_TTL:
+            return None
+        return {"naam": payload["naam"], "email": payload["email"]}
+    except Exception:
+        return None
 
 
 # ── E-mail helper ─────────────────────────────────────────────────────────────
@@ -158,6 +190,7 @@ app = FastAPI(lifespan=lifespan)
 BASE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 jinja_env = Environment(loader=FileSystemLoader(str(BASE / "templates")), cache_size=0)
+jinja_env.filters["euro"] = lambda v: "€\xa0" + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 templates = Jinja2Templates(env=jinja_env)
 
 
@@ -165,7 +198,42 @@ templates = Jinja2Templates(env=jinja_env)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    if get_user(request):
+        return RedirectResponse(url="/veilingen", status_code=303)
     return templates.TemplateResponse(request, "home.html")
+
+
+@app.get("/veilingen", response_class=HTMLResponse)
+async def veilingen_page(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse(url="/", status_code=303)
+    email  = user["email"]
+    domain = email.split("@")[1] if "@" in email else ""
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("SELECT * FROM auctions WHERE archived = 0 ORDER BY id DESC")
+    rows = cur.fetchall()
+    conn.close()
+    now = datetime.now().isoformat()
+    auctions = []
+    for r in rows:
+        d = dict(r)
+        d["is_ended"] = now > d["end_time"]
+        allowed_raw = (d.get("allowed_domains") or "").strip()
+        if allowed_raw:
+            allowed = [x.strip().lower() for x in allowed_raw.split(",") if x.strip()]
+            if domain not in allowed:
+                continue
+        auctions.append(d)
+    return templates.TemplateResponse(request, "veilingen.html", {"auctions": auctions, "user": user})
+
+
+@app.get("/uitloggen")
+async def uitloggen():
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.delete_cookie(USER_COOKIE)
+    return resp
 
 
 # ── Admin: login / logout ─────────────────────────────────────────────────────
@@ -236,6 +304,9 @@ async def admin_overzicht(request: Request):
 
 @app.get("/veiling/{auction_id}", response_class=HTMLResponse)
 async def auction_page(request: Request, auction_id: int):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse(url=f"/?next=/veiling/{auction_id}", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
     cur.execute("SELECT id FROM auctions WHERE id = %s", (auction_id,))
@@ -243,7 +314,11 @@ async def auction_page(request: Request, auction_id: int):
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
-    return templates.TemplateResponse(request, "auction.html", {"auction_id": auction_id})
+    return templates.TemplateResponse(request, "auction.html", {
+        "auction_id": auction_id,
+        "mijn_naam":  user["naam"],
+        "mijn_email": user["email"],
+    })
 
 
 # ── API: veiling zoeken op code ───────────────────────────────────────────────
@@ -582,18 +657,118 @@ async def verify_code(request: Request):
     return JSONResponse({"ok": True, "access_code": auction["access_code"]})
 
 
+# ── API: globale login – code versturen ──────────────────────────────────────
+
+@app.post("/api/auth/send-login-code")
+async def send_login_code(request: Request):
+    data  = await request.json()
+    naam  = data.get("naam", "").strip()
+    email = data.get("email", "").strip().lower()
+
+    if not naam:
+        raise HTTPException(400, "Vul je naam in")
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(400, "Ongeldig e-mailadres")
+
+    code       = "".join(secrets.choice("0123456789") for _ in range(6))
+    expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
+
+    conn = get_conn()
+    cur  = get_cur(conn)
+    # auction_id = 0 is schildwacht voor globale login (geen specifieke veiling)
+    cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = 0", (email,))
+    cur.execute(
+        "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (%s, 0, %s, %s)",
+        (email, code, expires_at)
+    )
+    conn.commit()
+    conn.close()
+
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">
+      <div style="background:#FF6F00;padding:20px 24px;border-radius:12px 12px 0 0">
+        <h1 style="color:#fff;margin:0;font-size:1.3rem;font-weight:800">Tosch Veiling</h1>
+      </div>
+      <div style="background:#fff;padding:32px 24px;border:1px solid #e5e7eb;border-radius:0 0 12px 12px">
+        <p style="color:#374151;margin:0 0 24px">
+          Hallo <strong>{naam}</strong>,<br><br>
+          Gebruik onderstaande code om in te loggen op de Tosch Veiling:
+        </p>
+        <div style="background:#f9fafb;border:2px solid #e5e7eb;border-radius:12px;
+                    padding:28px;text-align:center;margin-bottom:24px">
+          <div style="font-size:2.8rem;font-weight:800;letter-spacing:14px;
+                      color:#111827;font-family:monospace">{code}</div>
+        </div>
+        <p style="color:#6b7280;font-size:.875rem;margin:0">
+          Deze code is 10 minuten geldig. Niet aangevraagd? Dan kun je deze mail negeren.
+        </p>
+      </div>
+    </div>"""
+
+    try:
+        stuur_email(email, "Inlogcode – Tosch Veiling", html,
+                    f"Jouw inlogcode: {code}\n\nGeldig voor 10 minuten.")
+    except Exception as e:
+        raise HTTPException(500, f"E-mail versturen mislukt: {e}")
+
+    return JSONResponse({"ok": True})
+
+
+# ── API: globale login – code controleren ─────────────────────────────────────
+
+@app.post("/api/auth/verify-login-code")
+async def verify_login_code(request: Request):
+    data  = await request.json()
+    naam  = data.get("naam", "").strip()
+    email = data.get("email", "").strip().lower()
+    code  = data.get("code", "").strip()
+
+    if not naam or not email or not code:
+        raise HTTPException(400, "Ontbrekende gegevens")
+
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute(
+        "SELECT * FROM email_verifications "
+        "WHERE email = %s AND auction_id = 0 AND used = 0 "
+        "ORDER BY id DESC LIMIT 1",
+        (email,)
+    )
+    row = cur.fetchone()
+
+    if not row:
+        conn.close()
+        raise HTTPException(400, "Geen actieve code gevonden. Vraag een nieuwe code aan.")
+    if datetime.now() > datetime.fromisoformat(row["expires_at"]):
+        conn.close()
+        raise HTTPException(400, "Code verlopen. Vraag een nieuwe code aan.")
+    if row["code"] != code:
+        conn.close()
+        raise HTTPException(400, "Onjuiste code. Probeer opnieuw.")
+
+    cur.execute("UPDATE email_verifications SET used = 1 WHERE id = %s", (row["id"],))
+    conn.commit()
+    conn.close()
+
+    token = maak_user_token(naam, email)
+    resp  = JSONResponse({"ok": True})
+    resp.set_cookie(USER_COOKIE, token, httponly=True, max_age=USER_TTL, samesite="lax")
+    return resp
+
+
 # ── API: bod plaatsen ─────────────────────────────────────────────────────────
 
 @app.post("/api/bid")
 async def place_bid(request: Request):
+    user = get_user(request)
+    if not user:
+        raise HTTPException(status_code=403, detail="Niet ingelogd — ga naar de homepage")
+
     data        = await request.json()
     auction_id  = int(data["auction_id"])
-    bidder_name = data["bidder_name"].strip()
     amount      = float(data["amount"])
-    access_code = data["access_code"].strip().upper()
-
-    if not bidder_name:
-        raise HTTPException(status_code=400, detail="Vul je naam in")
+    bidder_name = user["naam"]
+    email       = user["email"]
 
     conn = get_conn()
     cur  = get_cur(conn)
@@ -602,9 +777,15 @@ async def place_bid(request: Request):
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
-    if row["access_code"] != access_code:
-        conn.close()
-        raise HTTPException(status_code=403, detail="Toegang geweigerd")
+
+    # Domeincontrole
+    allowed_raw = (row["allowed_domains"] or "").strip()
+    if allowed_raw:
+        allowed = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
+        domain  = email.split("@")[1] if "@" in email else ""
+        if domain not in allowed:
+            conn.close()
+            raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
 
     end_time = datetime.fromisoformat(row["end_time"])
     if datetime.now() > end_time:

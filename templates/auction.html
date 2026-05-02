@@ -86,6 +86,14 @@
 </head>
 <body class="auction-body">
 
+  <!-- Navbar (niet sticky zodat overboden-banner er altijd overheen ligt) -->
+  <nav class="navbar" style="position:relative">
+    <a href="/veilingen" class="nav-brand">
+      <img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo">
+    </a>
+    <a href="/veilingen" class="btn btn-ghost btn-sm">← Alle veilingen</a>
+  </nav>
+
   <!-- Overboden banner (klik om te sluiten) -->
   <div id="overbodenBanner" style="display:none" onclick="sluitOverbodenBanner()"></div>
 
@@ -97,60 +105,8 @@
     <div class="winner-card" id="winnerCard"></div>
   </div>
 
-  <!-- ── Join overlay ──────────────────────────────────────────────────────── -->
-  <div id="joinOverlay" class="join-overlay" style="display:none">
-    <div class="join-card">
-      <img src="/static/tosch-logo.png" alt="Tosch" style="height:40px;margin-bottom:1.25rem">
-      <h2 style="font-size:1.4rem;font-weight:700;margin-bottom:.375rem">Deelnemen aan veiling</h2>
-      <p id="joinSubtitel" style="color:var(--gray-500);margin-bottom:1.5rem;font-size:.9375rem">Vul je naam en toegangscode in</p>
-
-      <!-- Stap 1a: toegangscode (geen e-mailverificatie) -->
-      <div id="stapCode">
-        <div class="fpanel-group">
-          <label>Je naam</label>
-          <input id="joinNaam" type="text" placeholder="Jan Jansen" class="fpanel-input">
-        </div>
-        <div class="fpanel-group">
-          <label>Toegangscode</label>
-          <input id="joinCode" type="text" placeholder="AB12CD" maxlength="6" class="fpanel-input"
-                 style="text-transform:uppercase;letter-spacing:6px;font-size:1.3rem;text-align:center">
-        </div>
-        <div id="joinErrorCode" class="fpanel-alert fpanel-alert-error" style="display:none"></div>
-        <button class="bod-btn" onclick="deelnemen()">Deelnemen →</button>
-      </div>
-
-      <!-- Stap 1b: e-mail invoeren -->
-      <div id="stapEmail" style="display:none">
-        <div class="fpanel-group">
-          <label>Je naam</label>
-          <input id="joinNaamEmail" type="text" placeholder="Jan Jansen" class="fpanel-input">
-        </div>
-        <div class="fpanel-group">
-          <label>E-mailadres</label>
-          <input id="joinEmailAdres" type="email" placeholder="naam@bedrijf.nl" class="fpanel-input">
-        </div>
-        <div id="joinErrorEmail" class="fpanel-alert fpanel-alert-error" style="display:none"></div>
-        <button class="bod-btn" id="stuurCodeBtn" onclick="stuurVerificatiecode()">Verificatiecode versturen →</button>
-      </div>
-
-      <!-- Stap 2: code invoeren -->
-      <div id="stapVerificatie" style="display:none">
-        <p style="color:var(--gray-500);font-size:.875rem;margin-bottom:1.25rem">
-          We hebben een code gestuurd naar <strong id="emailWeergave"></strong>
-        </p>
-        <div class="fpanel-group">
-          <label>Verificatiecode</label>
-          <input id="joinVerifCode" type="text" placeholder="123456" maxlength="6" class="fpanel-input"
-                 style="letter-spacing:10px;font-size:1.5rem;text-align:center;font-weight:800">
-        </div>
-        <div id="joinErrorVerif" class="fpanel-alert fpanel-alert-error" style="display:none"></div>
-        <button class="bod-btn" onclick="controleerCode()">Bevestigen →</button>
-        <button class="btn btn-ghost btn-full" style="margin-top:.5rem"
-                onclick="nieuweCode()">Nieuwe code aanvragen</button>
-      </div>
-
-    </div>
-  </div>
+  <!-- Laad-indicator (verborgen zodra veiling geladen is) -->
+  <div id="laadStatus" style="text-align:center;padding:4rem;color:var(--gray-400)">Laden…</div>
 
   <!-- ── Auction page ──────────────────────────────────────────────────────── -->
   <div id="auctionPage" style="display:none">
@@ -254,9 +210,9 @@
             </div>
           </div>
 
-          <!-- Toegangscode melding -->
+          <!-- Ingelogd als -->
           <div class="code-info-box">
-            🔒 Toegang via persoonlijke code
+            ✉ Ingelogd als <strong id="loginEmailTekst"></strong>
           </div>
 
           <!-- Afgelopen (in panel) -->
@@ -299,152 +255,33 @@
 
   <script>
     const AUCTION_ID = {{ auction_id }};
-    let mijnNaam = '', mijnCode = '';
+    const MIJN_NAAM  = {{ mijn_naam | tojson }};
+    const MIJN_EMAIL = {{ mijn_email | tojson }};
+    let mijnNaam = MIJN_NAAM;
     let auctionData = null;
     let currentBedrag = 0, minBedrag = 0;
     let endTime = null;
     let countdownInterval = null;
     let alarmGegeven = false;
-    let emailVerificatieVereist = false;
-
-    // ── Persistent login ───────────────────────────────────────────────────────
-    const LS_CODE  = `veiling_${AUCTION_ID}_code`;
-    const LS_NAAM  = `veiling_${AUCTION_ID}_naam`;
-    const LS_EMAIL = `veiling_${AUCTION_ID}_email`;
 
     window.addEventListener('load', async () => {
-      // Haal eerst veiling op om te weten of e-mailverificatie vereist is
-      const res  = await fetch(`/api/auction/${AUCTION_ID}`);
-      if (!res.ok) { toonJoinOverlay(); return; }
-      const data = await res.json();
-      emailVerificatieVereist = data.require_email_verification;
-
-      const savedCode  = localStorage.getItem(LS_CODE);
-      const savedNaam  = localStorage.getItem(LS_NAAM);
-      const savedEmail = localStorage.getItem(LS_EMAIL);
-
-      if (savedCode && savedNaam) {
-        mijnCode = savedCode;
-        mijnNaam = savedNaam;
-        toonVeiling(data);
-      } else {
-        toonJoinOverlay(savedNaam, savedCode, savedEmail);
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
       }
-    });
-
-    function toonJoinOverlay(naam = '', code = '', email = '') {
-      if (emailVerificatieVereist) {
-        document.getElementById('joinSubtitel').textContent = 'Verifieer je e-mailadres om deel te nemen';
-        document.getElementById('stapCode').style.display  = 'none';
-        document.getElementById('stapEmail').style.display = 'block';
-        if (naam)  document.getElementById('joinNaamEmail').value   = naam;
-        if (email) document.getElementById('joinEmailAdres').value  = email;
-      } else {
-        document.getElementById('joinSubtitel').textContent = 'Vul je naam en toegangscode in';
-        document.getElementById('stapCode').style.display  = 'block';
-        document.getElementById('stapEmail').style.display = 'none';
-        if (naam) document.getElementById('joinNaam').value = naam;
-        if (code) document.getElementById('joinCode').value = code;
-        document.getElementById('joinCode').addEventListener('input',
-          e => e.target.value = e.target.value.toUpperCase());
-      }
-      document.getElementById('joinOverlay').style.display = 'flex';
-    }
-
-    // Stap 1a: toegangscode flow
-    async function deelnemen() {
-      const naam = document.getElementById('joinNaam').value.trim();
-      const code = document.getElementById('joinCode').value.trim().toUpperCase();
-      if (!naam) return showJoinError('code', 'Vul je naam in');
-      if (code.length < 6) return showJoinError('code', 'Voer een geldige 6-tekens code in');
-      mijnNaam = naam; mijnCode = code;
-      localStorage.setItem(LS_CODE, code);
-      localStorage.setItem(LS_NAAM, naam);
-      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-      await laadVeiling();
-    }
-
-    // Stap 1b: e-mail versturen
-    async function stuurVerificatiecode() {
-      const naam  = document.getElementById('joinNaamEmail').value.trim();
-      const email = document.getElementById('joinEmailAdres').value.trim().toLowerCase();
-      if (!naam)                     return showJoinError('email', 'Vul je naam in');
-      if (!email || !email.includes('@')) return showJoinError('email', 'Vul een geldig e-mailadres in');
-
-      const btn = document.getElementById('stuurCodeBtn');
-      btn.textContent = 'Versturen...'; btn.disabled = true;
-
-      try {
-        const res = await fetch('/api/auth/send-code', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ email, auction_id: AUCTION_ID })
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          return showJoinError('email', err.detail || 'Versturen mislukt');
-        }
-        localStorage.setItem(LS_EMAIL, email);
-        localStorage.setItem(LS_NAAM, naam);
-        document.getElementById('emailWeergave').textContent = email;
-        document.getElementById('stapEmail').style.display       = 'none';
-        document.getElementById('stapVerificatie').style.display = 'block';
-        document.getElementById('joinVerifCode').focus();
-      } catch {
-        showJoinError('email', 'Verbindingsfout. Probeer opnieuw.');
-      } finally {
-        btn.textContent = 'Verificatiecode versturen →'; btn.disabled = false;
-      }
-    }
-
-    // Stap 2: code controleren
-    async function controleerCode() {
-      const code  = document.getElementById('joinVerifCode').value.trim();
-      const email = localStorage.getItem(LS_EMAIL) || '';
-      const naam  = localStorage.getItem(LS_NAAM)  || '';
-      if (code.length < 6) return showJoinError('verif', 'Voer de 6-cijferige code in');
-
-      try {
-        const res = await fetch('/api/auth/verify-code', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ email, code, auction_id: AUCTION_ID })
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          return showJoinError('verif', err.detail || 'Verificatie mislukt');
-        }
-        const data = await res.json();
-        mijnNaam = naam;
-        mijnCode = data.access_code;
-        localStorage.setItem(LS_CODE, mijnCode);
-        if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-        await laadVeiling();
-      } catch {
-        showJoinError('verif', 'Verbindingsfout. Probeer opnieuw.');
-      }
-    }
-
-    function nieuweCode() {
-      document.getElementById('stapVerificatie').style.display = 'none';
-      document.getElementById('stapEmail').style.display       = 'block';
-      document.getElementById('joinVerifCode').value = '';
-      document.getElementById('joinErrorVerif').style.display = 'none';
-    }
-
-    function showJoinError(stap, msg) {
-      const ids = { code: 'joinErrorCode', email: 'joinErrorEmail', verif: 'joinErrorVerif' };
-      const el = document.getElementById(ids[stap] || 'joinErrorCode');
-      el.textContent = msg; el.style.display = 'block';
-    }
-
-    async function laadVeiling() {
+      document.getElementById('loginEmailTekst').textContent = MIJN_EMAIL;
       try {
         const res = await fetch(`/api/auction/${AUCTION_ID}`);
-        if (!res.ok) { showJoinError('code', 'Veiling niet gevonden'); return; }
+        if (!res.ok) {
+          document.getElementById('laadStatus').innerHTML =
+            '<p>Veiling niet gevonden.</p><a href="/veilingen" class="btn btn-primary" style="margin-top:1rem">← Terug naar overzicht</a>';
+          return;
+        }
+        document.getElementById('laadStatus').style.display = 'none';
         toonVeiling(await res.json());
-      } catch { showJoinError('code', 'Kan veiling niet laden. Probeer opnieuw.'); }
-    }
+      } catch {
+        document.getElementById('laadStatus').textContent = 'Verbindingsfout. Ververs de pagina.';
+      }
+    });
 
     function toonVeiling(data) {
       auctionData = data;
@@ -528,8 +365,13 @@
         const res = await fetch('/api/bid', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ auction_id: AUCTION_ID, bidder_name: mijnNaam, amount: currentBedrag, access_code: mijnCode })
+          body: JSON.stringify({ auction_id: AUCTION_ID, amount: currentBedrag })
         });
+        if (res.status === 403) {
+          // Sessie verlopen of geen toegang — stuur terug naar login
+          window.location.href = '/?next=/veiling/' + AUCTION_ID;
+          return;
+        }
         if (!res.ok) {
           const err = await res.json();
           errEl.textContent = err.detail || 'Bod mislukt';

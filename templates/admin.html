@@ -91,21 +91,13 @@
           <input id="eindTijd" type="time" value="17:00">
         </div>
 
-        <!-- E-mailverificatie -->
+        <!-- Domeinbeperking -->
         <div class="form-group form-full">
-          <label class="toggle-label">
-            <input type="checkbox" id="emailVerificatie" onchange="toggleDomeinen()">
-            <span class="toggle-tekst">✉ E-mailverificatie vereisen</span>
-          </label>
-          <p style="color:var(--gray-500);font-size:.8125rem;margin-top:.3rem">
-            Deelnemers moeten hun e-mailadres verifiëren voordat ze kunnen bieden.
-          </p>
-        </div>
-        <div class="form-group form-full" id="domeinenGroup" style="display:none">
-          <label>Toegestane e-maildomeinen <span style="color:var(--gray-400);font-weight:400">(optioneel)</span></label>
+          <label>Toegestaan e-maildomein <span style="color:var(--gray-400);font-weight:400">(optioneel)</span></label>
           <input id="toegestaaneDomeinen" type="text"
-                 placeholder="bijv. tosch.nl, example.com — leeg = iedereen mag meedoen">
+                 placeholder="bijv. tosch.nl — leeg = iedereen mag meedoen">
           <p style="color:var(--gray-500);font-size:.8125rem;margin-top:.3rem">
+            Alleen bieders met dit e-maildomein zien en kunnen deelnemen aan deze veiling.
             Meerdere domeinen scheiden met een komma.
           </p>
         </div>
@@ -123,16 +115,12 @@
     <div class="card" id="resultaat" style="display:none;text-align:center">
       <div class="success-icon">✅</div>
       <h2 style="font-size:1.4rem;font-weight:700;margin-bottom:.5rem">Veiling aangemaakt!</h2>
-      <p style="color:var(--gray-500)">Deel de link en toegangscode met je collega's.</p>
+      <p style="color:var(--gray-500)">Deel de link met de deelnemers — zij loggen in via hun e-mailadres.</p>
 
       <div class="result-box">
         <div class="result-row">
           <span class="result-label">Link</span>
           <a id="veilingLink" href="#" target="_blank" class="result-value"></a>
-        </div>
-        <div class="result-row">
-          <span class="result-label">Toegangscode</span>
-          <span id="toegangscode" class="result-code"></span>
         </div>
       </div>
 
@@ -460,7 +448,6 @@
       if (!pass)                        return showErr('Vul het beheerderswachtwoord in');
 
       try {
-        const emailVer = document.getElementById('emailVerificatie').checked;
         const domeinen = document.getElementById('toegestaaneDomeinen').value.trim();
 
         const res = await fetch('/api/auction/create', {
@@ -475,7 +462,7 @@
             min_increment:              minVer,
             end_time:                   `${datum}T${tijd}:00`,
             admin_password:             pass,
-            require_email_verification: emailVer,
+            require_email_verification: true,
             allowed_domains:            domeinen,
           })
         });
@@ -491,7 +478,6 @@
         document.getElementById('veilingLink').textContent = link;
         document.getElementById('veilingLink').href        = link;
         document.getElementById('openLink').href           = link;
-        document.getElementById('toegangscode').textContent = data.access_code;
 
         document.getElementById('stap1').style.display    = 'none';
         document.getElementById('stap2').style.display    = 'none';
@@ -502,11 +488,6 @@
       }
     }
 
-    function toggleDomeinen() {
-      const aan = document.getElementById('emailVerificatie').checked;
-      document.getElementById('domeinenGroup').style.display = aan ? 'block' : 'none';
-    }
-
     function showErr(msg) {
       const el = document.getElementById('aanmaakError');
       el.textContent = msg; el.style.display = 'block';
@@ -514,8 +495,7 @@
 
     function kopieerLink() {
       const link = document.getElementById('veilingLink').textContent;
-      const code = document.getElementById('toegangscode').textContent;
-      navigator.clipboard.writeText(`${link}\nToegangsode: ${code}`);
+      navigator.clipboard.writeText(link);
       document.getElementById('kopieerMsg').style.display = 'block';
       setTimeout(() => document.getElementById('kopieerMsg').style.display = 'none', 2500);
     }

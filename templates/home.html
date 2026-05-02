@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tosch Veiling</title>
+  <title>Tosch Veiling — Inloggen</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -11,50 +11,135 @@
     <div class="card" style="max-width:420px;width:100%">
       <img src="/static/tosch-logo.png" alt="Tosch" style="height:48px;margin-bottom:1rem">
       <h1>Tosch Veiling</h1>
-      <p class="subtitle">Voer je toegangscode in om deel te nemen aan een veiling</p>
 
-      <div class="form-group">
-        <label>Toegangscode</label>
-        <input id="code" type="text" placeholder="bijv. AB12CD" maxlength="6"
-               style="text-transform:uppercase;letter-spacing:4px;font-size:1.3rem;text-align:center">
+      <!-- Stap 1: naam + e-mail -->
+      <div id="stapLogin">
+        <p class="subtitle">Vul je naam en e-mailadres in om deel te nemen</p>
+        <div class="form-group">
+          <label>Je naam</label>
+          <input id="loginNaam" type="text" placeholder="Jan Jansen" autofocus>
+        </div>
+        <div class="form-group">
+          <label>E-mailadres</label>
+          <input id="loginEmail" type="email" placeholder="naam@bedrijf.nl">
+        </div>
+        <div id="errorLogin" class="alert alert-error" style="display:none"></div>
+        <button class="btn btn-primary btn-full" id="stuurBtn" onclick="stuurCode()">
+          Verificatiecode versturen →
+        </button>
       </div>
-      <div id="error" class="alert alert-error" style="display:none"></div>
-      <button class="btn btn-primary btn-full" onclick="zoekVeiling()">Deelnemen →</button>
+
+      <!-- Stap 2: code invoeren -->
+      <div id="stapCode" style="display:none">
+        <p class="subtitle" id="codeSubtitel"></p>
+        <div class="form-group" style="margin-top:1rem">
+          <label>Verificatiecode</label>
+          <input id="loginCode" type="text" inputmode="numeric" placeholder="123456" maxlength="6"
+                 style="letter-spacing:10px;font-size:1.5rem;text-align:center;font-weight:800">
+        </div>
+        <div id="errorCode" class="alert alert-error" style="display:none"></div>
+        <button class="btn btn-primary btn-full" id="verifBtn" onclick="controleerCode()">
+          Deelnemen →
+        </button>
+        <button class="btn btn-ghost btn-full" style="margin-top:.5rem" onclick="nieuweCode()">
+          ← Andere code aanvragen
+        </button>
+      </div>
 
       <div class="divider"></div>
-      <a href="/admin" class="btn btn-ghost btn-full" style="color:var(--gray-500)">Beheerder inloggen</a>
+      <a href="/admin" class="btn btn-ghost btn-full" style="color:var(--gray-500)">
+        Beheerder inloggen
+      </a>
     </div>
   </div>
 
   <script>
-    document.getElementById('code').addEventListener('keydown', e => {
-      if (e.key === 'Enter') zoekVeiling();
+    const params  = new URLSearchParams(location.search);
+    const nextUrl = params.get('next') || '/veilingen';
+
+    document.getElementById('loginNaam').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('loginEmail').focus();
     });
-    document.getElementById('code').addEventListener('input', e => {
-      e.target.value = e.target.value.toUpperCase();
+    document.getElementById('loginEmail').addEventListener('keydown', e => {
+      if (e.key === 'Enter') stuurCode();
     });
 
-    async function zoekVeiling() {
-      const code = document.getElementById('code').value.trim().toUpperCase();
-      if (code.length < 6) {
-        showError('Voer een geldige 6-tekens code in');
-        return;
-      }
-      // zoek veiling met deze code via simpele check
-      const res = await fetch(`/api/find?code=${code}`);
-      if (res.ok) {
-        const data = await res.json();
-        sessionStorage.setItem('access_code', code);
-        window.location.href = `/veiling/${data.auction_id}`;
-      } else {
-        showError('Toegangscode niet gevonden. Controleer de code en probeer opnieuw.');
+    async function stuurCode() {
+      const naam  = document.getElementById('loginNaam').value.trim();
+      const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+      const errEl = document.getElementById('errorLogin');
+      errEl.style.display = 'none';
+
+      if (!naam)  return toonFout('login', 'Vul je naam in');
+      if (!email || !email.includes('@')) return toonFout('login', 'Vul een geldig e-mailadres in');
+
+      const btn = document.getElementById('stuurBtn');
+      btn.textContent = 'Versturen...'; btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/send-login-code', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ naam, email })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          return toonFout('login', err.detail || 'Versturen mislukt');
+        }
+        document.getElementById('codeSubtitel').textContent =
+          `We stuurden een code naar ${email}. Controleer ook je spammap.`;
+        document.getElementById('stapLogin').style.display = 'none';
+        document.getElementById('stapCode').style.display  = 'block';
+        document.getElementById('loginCode').focus();
+      } catch {
+        toonFout('login', 'Verbindingsfout. Probeer opnieuw.');
+      } finally {
+        btn.textContent = 'Verificatiecode versturen →'; btn.disabled = false;
       }
     }
 
-    function showError(msg) {
-      const el = document.getElementById('error');
-      el.textContent = msg;
-      el.style.display = 'block';
+    document.getElementById('loginCode').addEventListener('keydown', e => {
+      if (e.key === 'Enter') controleerCode();
+    });
+
+    async function controleerCode() {
+      const naam  = document.getElementById('loginNaam').value.trim();
+      const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+      const code  = document.getElementById('loginCode').value.trim();
+      if (code.length < 6) return toonFout('code', 'Voer de 6-cijferige code in');
+
+      const btn = document.getElementById('verifBtn');
+      btn.textContent = 'Bezig...'; btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/verify-login-code', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ naam, email, code })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          return toonFout('code', err.detail || 'Verificatie mislukt');
+        }
+        window.location.href = nextUrl;
+      } catch {
+        toonFout('code', 'Verbindingsfout. Probeer opnieuw.');
+      } finally {
+        btn.textContent = 'Deelnemen →'; btn.disabled = false;
+      }
+    }
+
+    function nieuweCode() {
+      document.getElementById('stapCode').style.display  = 'none';
+      document.getElementById('stapLogin').style.display = 'block';
+      document.getElementById('loginCode').value = '';
+      document.getElementById('errorCode').style.display = 'none';
+    }
+
+    function toonFout(stap, msg) {
+      const id = stap === 'login' ? 'errorLogin' : 'errorCode';
+      const el = document.getElementById(id);
+      el.textContent = msg; el.style.display = 'block';
     }
   </script>
 </body>
