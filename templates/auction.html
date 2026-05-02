@@ -434,7 +434,7 @@
       document.getElementById('productBeschrijving').textContent = data.description;
 
       if (data.image_url) {
-        document.getElementById('productImg').src = data.image_url;
+        document.getElementById('productImg').src = `/api/image-proxy?url=${encodeURIComponent(data.image_url)}`;
       } else {
         document.getElementById('imgCard').style.display = 'none';
       }

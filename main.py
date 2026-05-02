@@ -15,7 +15,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
@@ -398,6 +398,26 @@ async def create_auction(request: Request):
 
 # ── API: veiling ophalen ──────────────────────────────────────────────────────
 
+# ── API: image proxy (omzeilt hotlink-beveiliging van externe URLs) ───────────
+
+@app.get("/api/image-proxy")
+async def image_proxy(url: str):
+    if not url.startswith("https://"):
+        raise HTTPException(400, "Ongeldige URL")
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ToschVeiling/1.0)"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            content      = r.read()
+            content_type = r.headers.get("Content-Type", "image/jpeg").split(";")[0]
+        return Response(content=content, media_type=content_type,
+                        headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        raise HTTPException(404, "Afbeelding niet beschikbaar")
+
+
 @app.get("/api/auction/{auction_id}")
 async def get_auction(auction_id: int):
     conn = get_conn()
@@ -502,7 +522,9 @@ async def send_code(request: Request):
             f"Uw verificatiecode: {code}\n\nGeldig voor 10 minuten.",
         )
     except Exception as e:
-        raise HTTPException(500, f"E-mail versturen mislukt: {e}")
+        # Geef de exacte SMTP2GO-fout terug zodat problemen zichtbaar zijn
+        detail = str(e)
+        raise HTTPException(500, f"E-mail versturen mislukt: {detail}")
 
     return JSONResponse({"ok": True})
 
