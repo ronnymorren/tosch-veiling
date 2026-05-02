@@ -204,8 +204,18 @@ body {
   font-size: .9rem;
 }
 
+/* ── Biedgeschiedenis (losse rij in het grid — linkerkolom op desktop) ────── */
+.ac-history {
+  grid-column: 1;   /* blijft in de linkerkolom */
+}
+
 /* ── Right column (sticky) ───────────────────────────────────────────────── */
-.ac-sidebar { position: sticky; top: 1.5rem; }
+.ac-sidebar {
+  position: sticky;
+  top: 1.5rem;
+  grid-row: 1 / 3;  /* sidebar overlapt rij 1 én rij 2 op desktop */
+  grid-column: 2;
+}
 
 .bid-panel-card {
   background: #fff;
@@ -625,7 +635,8 @@ input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 800px) {
   .ac-wrap           { grid-template-columns: 1fr; }
-  .ac-sidebar        { position: static; }
+  .ac-sidebar        { position: static; grid-row: auto; grid-column: auto; }
+  .ac-history        { grid-column: auto; }
   .form-grid         { grid-template-columns: 1fr; }
   .product-preview   { grid-template-columns: 1fr; }
   .info-pills-row    { grid-template-columns: 1fr 1fr; }
