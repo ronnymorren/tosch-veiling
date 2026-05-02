@@ -266,8 +266,8 @@ body {
   gap: .1rem;
 }
 .circle-live {
-  background: var(--green-bg);
-  color: var(--green);
+  background: var(--orange-l);
+  color: var(--orange);
   font-size: .65rem;
   font-weight: 800;
   padding: .15rem .55rem;
