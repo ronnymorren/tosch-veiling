@@ -28,12 +28,18 @@ from ddgs import DDGS
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")   # gedeelde keys
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)  # project-specifiek
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tosch2024")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")          # 🔒 Fix 1: geen hardcoded fallback
+SESSION_SECRET = os.getenv("SESSION_SECRET")          # 🔒 Fix 2: aparte signing key (niet het wachtwoord)
+DATABASE_URL   = os.getenv("DATABASE_URL", "")
 SESSION_COOKIE = "tosch_admin"
 SESSION_TTL    = 8 * 3600   # 8 uur
 USER_COOKIE    = "tosch_user"
 USER_TTL       = 8 * 3600   # 8 uur
-DATABASE_URL   = os.getenv("DATABASE_URL", "")
+
+if not ADMIN_PASSWORD:
+    raise RuntimeError("ADMIN_PASSWORD is niet ingesteld. Voeg toe aan .env of Vercel Environment Variables.")
+if not SESSION_SECRET:
+    raise RuntimeError("SESSION_SECRET is niet ingesteld. Voeg toe aan .env of Vercel Environment Variables.")
 
 # Windows = lokale dev; Linux/Mac = Vercel/server (voor afbeeldingslogica)
 IS_VERCEL = os.name != "nt"
@@ -42,7 +48,7 @@ IS_VERCEL = os.name != "nt"
 # ── Admin-sessie: gesigneerd cookie (geen server-side state nodig) ────────────
 
 def _sign(ts: str) -> str:
-    return hmac.new(ADMIN_PASSWORD.encode(), ts.encode(), hashlib.sha256).hexdigest()[:24]
+    return hmac.new(SESSION_SECRET.encode(), ts.encode(), hashlib.sha256).hexdigest()[:24]  # 🔒 Fix 3: SESSION_SECRET i.p.v. ADMIN_PASSWORD
 
 def maak_admin_token() -> str:
     ts  = str(int(time.time()))
@@ -70,7 +76,7 @@ def maak_user_token(naam: str, email: str) -> str:
     ts          = str(int(time.time()))
     payload_str = json.dumps({"naam": naam, "email": email, "ts": ts}, separators=(',', ':'))
     payload_b64 = base64.urlsafe_b64encode(payload_str.encode()).decode().rstrip("=")
-    sig         = hmac.new(ADMIN_PASSWORD.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()[:24]
+    sig         = hmac.new(SESSION_SECRET.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()[:24]  # 🔒 Fix 3
     raw         = f"{payload_b64}.{sig}"
     return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
@@ -82,7 +88,7 @@ def get_user(request: Request) -> dict | None:
         padded      = token + "=" * (4 - len(token) % 4)
         decoded     = base64.urlsafe_b64decode(padded).decode()
         payload_b64, sig = decoded.rsplit(".", 1)
-        expected    = hmac.new(ADMIN_PASSWORD.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()[:24]
+        expected    = hmac.new(SESSION_SECRET.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()[:24]  # 🔒 Fix 3
         if not hmac.compare_digest(sig, expected):
             return None
         padded2  = payload_b64 + "=" * (4 - len(payload_b64) % 4)
@@ -122,7 +128,7 @@ def get_client_ip(request: Request) -> str:
     """Haal het werkelijke IP-adres op (ook achter Vercel's proxy)."""
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.split(",")[-1].strip()  # 🔒 Fix 4: laatste IP = door Vercel toegevoegd, niet aanvaller-controleerbaar
     return request.client.host if request.client else ""
 
 
@@ -242,13 +248,31 @@ async def lifespan(app: FastAPI):
         pass
     yield
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url=None,     # 🔒 Fix 6: Swagger UI uitgeschakeld in productie
+    redoc_url=None,
+    openapi_url=None,
+)
 
 BASE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
-jinja_env = Environment(loader=FileSystemLoader(str(BASE / "templates")), cache_size=0)
+jinja_env = Environment(
+    loader=FileSystemLoader(str(BASE / "templates")),
+    autoescape=True,   # 🔒 Fix 5: XSS-bescherming voor alle templates
+    cache_size=0,
+)
 jinja_env.filters["euro"] = lambda v: "€\xa0" + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 templates = Jinja2Templates(env=jinja_env)
+
+
+# ── Open redirect bescherming ─────────────────────────────────────────────────
+
+def valideer_next(next_url: str, standaard: str = "/") -> str:
+    """Sta alleen lokale paden toe — voorkomt open redirect-aanvallen."""  # 🔒 Fix 7
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return next_url
+    return standaard
 
 
 # ── Pagina's ──────────────────────────────────────────────────────────────────
@@ -297,17 +321,18 @@ async def uitloggen():
 
 @app.get("/admin/login", response_class=HTMLResponse)
 async def admin_login_get(request: Request, next: str = "/admin/overzicht"):
+    safe_next = valideer_next(next, "/admin/overzicht")  # 🔒 Fix 7
     if is_admin(request):
-        return RedirectResponse(url=next, status_code=303)
-    return templates.TemplateResponse(request, "admin_login.html", {"next": next})
+        return RedirectResponse(url=safe_next, status_code=303)
+    return templates.TemplateResponse(request, "admin_login.html", {"next": safe_next})
 
 @app.post("/admin/login", response_class=HTMLResponse)
 async def admin_login_post(request: Request):
     form     = await request.form()
     password = str(form.get("password", ""))
-    next_url = str(form.get("next", "/admin/overzicht"))
+    next_url = valideer_next(str(form.get("next", "/admin/overzicht")), "/admin/overzicht")  # 🔒 Fix 7
 
-    if password != ADMIN_PASSWORD:
+    if not hmac.compare_digest(password, ADMIN_PASSWORD):  # 🔒 Fix 8: timing-safe vergelijking
         return templates.TemplateResponse(request, "admin_login.html",
             {"error": "Verkeerd wachtwoord. Probeer opnieuw.", "next": next_url},
             status_code=401)
@@ -384,6 +409,8 @@ async def auction_page(request: Request, auction_id: int):
 
 @app.post("/api/product-info")
 async def product_info(request: Request):
+    if not is_admin(request):  # 🔒 Fix 11: alleen admin mag AI + DuckDuckGo gebruiken
+        raise HTTPException(status_code=403, detail="Geen toegang")
     data = await request.json()
     product_name = data.get("product_name", "").strip()
     if not product_name:
@@ -486,10 +513,9 @@ async def product_info(request: Request):
 
 @app.post("/api/auction/create")
 async def create_auction(request: Request):
+    if not is_admin(request):  # 🔒 Fix 10: cookie-auth i.p.v. wachtwoord in JSON-body
+        raise HTTPException(status_code=403, detail="Geen toegang")
     data = await request.json()
-
-    if data.get("admin_password") != ADMIN_PASSWORD:
-        raise HTTPException(status_code=403, detail="Verkeerd beheerderswachtwoord")
 
     access_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
 
@@ -525,7 +551,9 @@ async def create_auction(request: Request):
 # ── API: image proxy (omzeilt hotlink-beveiliging van externe URLs) ───────────
 
 @app.get("/api/image-proxy")
-async def image_proxy(url: str):
+async def image_proxy(url: str, request: Request):
+    if not is_admin(request):  # 🔒 Fix 11: SSRF-bescherming — alleen admin mag proxy gebruiken
+        raise HTTPException(status_code=403, detail="Geen toegang")
     if not url.startswith("https://"):
         raise HTTPException(400, "Ongeldige URL")
     try:
@@ -616,7 +644,11 @@ async def get_auction(auction_id: int):
         "end_time":                   row["end_time"],
         "status":                     "ended" if is_ended else "active",
         "winner":                     winner,
-        "bids":                       [dict(b) for b in bids],
+        "bids":                       [  # 🔒 Fix 12: geen email/IP in publieke response
+            {"id": b["id"], "bidder_name": b["bidder_name"],
+             "amount": b["amount"], "timestamp": b["timestamp"]}
+            for b in bids
+        ],
         "require_email_verification": req_email,
         "access_code":                row["access_code"] if not req_email else None,
     })
@@ -710,7 +742,7 @@ async def verify_login_code(request: Request):
     if datetime.now() > datetime.fromisoformat(row["expires_at"]):
         conn.close()
         raise HTTPException(400, "Code verlopen. Vraag een nieuwe code aan.")
-    if row["code"] != code:
+    if not hmac.compare_digest(row["code"], code):  # 🔒 Fix 9: timing-safe OTP vergelijking
         conn.close()
         raise HTTPException(400, "Onjuiste code. Probeer opnieuw.")
 

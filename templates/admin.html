@@ -103,10 +103,7 @@
           </p>
         </div>
 
-        <div class="form-group form-full">
-          <label>Beheerderswachtwoord</label>
-          <input id="adminPass" type="password" placeholder="Wachtwoord">
-        </div>
+        <!-- 🔒 Fix 10: beheerderswachtwoord niet meer nodig — sessie-cookie wordt gebruikt -->
       </div>
       <div id="aanmaakError" class="alert alert-error" style="display:none"></div>
       <button class="btn btn-primary btn-full" onclick="maakVeiling()">Veiling aanmaken</button>
@@ -437,7 +434,6 @@
       const minVer      = parseFloat(document.getElementById('minVerhoging').value);
       const datum       = document.getElementById('eindDatum').value;
       const tijd        = document.getElementById('eindTijd').value;
-      const pass        = document.getElementById('adminPass').value;
       const errorEl     = document.getElementById('aanmaakError');
 
       errorEl.style.display = 'none';
@@ -446,7 +442,6 @@
       if (isNaN(startPrijs) || startPrijs < 0) return showErr('Vul een geldige startprijs in');
       if (isNaN(minVer)     || minVer <= 0)    return showErr('Vul een geldige minimale verhoging in');
       if (!datum || !tijd)              return showErr('Vul een einddatum en -tijd in');
-      if (!pass)                        return showErr('Vul het beheerderswachtwoord in');
 
       try {
         const domeinen = document.getElementById('toegestaaneDomeinen').value.trim();
@@ -462,7 +457,6 @@
             start_price:                startPrijs,
             min_increment:              minVer,
             end_time:                   `${datum}T${tijd}:00`,
-            admin_password:             pass,
             require_email_verification: true,
             allowed_domains:            domeinen,
           })
