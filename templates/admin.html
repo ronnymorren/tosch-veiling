@@ -440,9 +440,9 @@
     async function maakVeiling() {
       const titel       = document.getElementById('editTitel').value.trim();
       const beschr      = document.getElementById('editBeschrijving').value.trim();
-      // Sla alleen het pad op (niet de volledige http://localhost URL)
-      const rawSrc      = document.getElementById('previewImg').src;
-      const imgUrl      = rawSrc ? new URL(rawSrc).pathname : '';
+      // Gebruik productData.image_url direct: externe URLs bewaren volledig,
+      // lokale /static/images/ URLs zijn al relatief ingesteld door de backend.
+      const imgUrl = (productData && productData.image_url) ? productData.image_url : '';
       const specs       = leesSpecs();
       const startPrijs  = parseFloat(document.getElementById('startPrijs').value);
       const minVer      = parseFloat(document.getElementById('minVerhoging').value);
