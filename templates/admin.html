@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Veiling aanmaken – Tosch</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="admin-body">
+  <nav class="navbar">
+    <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
+    <a href="/admin/overzicht" class="btn btn-ghost btn-sm">Overzicht veilingen</a>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <h1>Nieuwe veiling aanmaken</h1>
+      <p>Zoek een product op — pas daarna alles naar wens aan</p>
+    </div>
+
+    <!-- ── Stap 1: product zoeken ───────────────────────────────────────── -->
+    <div class="card" id="stap1">
+      <h2 class="card-title">Stap 1 — Product opzoeken</h2>
+      <div class="search-row">
+        <input id="productInput" type="text"
+               placeholder="bijv. iPhone 15 Pro, HP EliteBook 830 G8 ..."
+               class="search-input">
+        <button class="btn btn-primary" id="zoekBtn" onclick="zoekProduct()">
+          Ophalen
+        </button>
+      </div>
+      <div id="zoekStatus" class="status-msg" style="display:none"></div>
+
+      <!-- Preview + bewerkbare velden -->
+      <div id="preview" style="display:none">
+
+        <!-- Bewerkbare details -->
+        <div class="product-details-wrap">
+
+          <!-- Productnaam (bewerkbaar) -->
+          <div class="edit-group">
+            <label class="edit-label">Productnaam</label>
+            <input id="editTitel" type="text" class="edit-input edit-input-lg">
+          </div>
+
+          <!-- Beschrijving (bewerkbaar) -->
+          <div class="edit-group">
+            <label class="edit-label">Beschrijving</label>
+            <textarea id="editBeschrijving" class="edit-textarea" rows="3"></textarea>
+          </div>
+
+          <!-- Specificaties (bewerkbaar) -->
+          <div class="edit-group">
+            <div class="specs-edit-header">
+              <label class="edit-label" style="margin:0">Specificaties</label>
+              <button class="btn btn-ghost btn-sm" onclick="voegSpecToe()">+ Spec toevoegen</button>
+            </div>
+            <div id="specsEditor" class="specs-editor"></div>
+          </div>
+
+        </div>
+
+        <!-- Foto-kiezer: volledige breedte -->
+        <div class="foto-kiezer-sectie">
+          <label class="edit-label" style="margin-bottom:.6rem;display:block">Foto kiezen</label>
+          <div id="fotoKiezer" class="foto-kiezer"></div>
+          <img id="previewImg" src="" alt="Productafbeelding" style="display:none">
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Stap 2: veiling instellen ───────────────────────────────────── -->
+    <div class="card" id="stap2" style="display:none">
+      <h2 class="card-title">Stap 2 — Veiling instellen</h2>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Startprijs (€)</label>
+          <input id="startPrijs" type="number" min="0" step="0.01" placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label>Minimale verhoging (€)</label>
+          <input id="minVerhoging" type="number" min="0.01" step="0.01" value="1.00">
+        </div>
+        <div class="form-group">
+          <label>Einddatum</label>
+          <input id="eindDatum" type="date">
+        </div>
+        <div class="form-group">
+          <label>Eindtijd</label>
+          <input id="eindTijd" type="time" value="17:00">
+        </div>
+
+        <!-- E-mailverificatie -->
+        <div class="form-group form-full">
+          <label class="toggle-label">
+            <input type="checkbox" id="emailVerificatie" onchange="toggleDomeinen()">
+            <span class="toggle-tekst">✉ E-mailverificatie vereisen</span>
+          </label>
+          <p style="color:var(--gray-500);font-size:.8125rem;margin-top:.3rem">
+            Deelnemers moeten hun e-mailadres verifiëren voordat ze kunnen bieden.
+          </p>
+        </div>
+        <div class="form-group form-full" id="domeinenGroup" style="display:none">
+          <label>Toegestane e-maildomeinen <span style="color:var(--gray-400);font-weight:400">(optioneel)</span></label>
+          <input id="toegestaaneDomeinen" type="text"
+                 placeholder="bijv. tosch.nl, example.com — leeg = iedereen mag meedoen">
+          <p style="color:var(--gray-500);font-size:.8125rem;margin-top:.3rem">
+            Meerdere domeinen scheiden met een komma.
+          </p>
+        </div>
+
+        <div class="form-group form-full">
+          <label>Beheerderswachtwoord</label>
+          <input id="adminPass" type="password" placeholder="Wachtwoord">
+        </div>
+      </div>
+      <div id="aanmaakError" class="alert alert-error" style="display:none"></div>
+      <button class="btn btn-primary btn-full" onclick="maakVeiling()">Veiling aanmaken</button>
+    </div>
+
+    <!-- ── Resultaat ────────────────────────────────────────────────────── -->
+    <div class="card" id="resultaat" style="display:none;text-align:center">
+      <div class="success-icon">✅</div>
+      <h2 style="font-size:1.4rem;font-weight:700;margin-bottom:.5rem">Veiling aangemaakt!</h2>
+      <p style="color:var(--gray-500)">Deel de link en toegangscode met je collega's.</p>
+
+      <div class="result-box">
+        <div class="result-row">
+          <span class="result-label">Link</span>
+          <a id="veilingLink" href="#" target="_blank" class="result-value"></a>
+        </div>
+        <div class="result-row">
+          <span class="result-label">Toegangscode</span>
+          <span id="toegangscode" class="result-code"></span>
+        </div>
+      </div>
+
+      <div class="btn-row" style="justify-content:center">
+        <button class="btn btn-primary" onclick="kopieerLink()">Link + code kopiëren</button>
+        <a id="openLink" href="#" target="_blank" class="btn btn-ghost">Veiling openen</a>
+      </div>
+      <p id="kopieerMsg" style="display:none;color:var(--green);margin-top:.75rem;font-weight:600">✓ Gekopieerd!</p>
+    </div>
+  </div>
+
+  <style>
+    /* Toggle checkbox */
+    .toggle-label  { display:flex; align-items:center; gap:.6rem; cursor:pointer; font-weight:600; font-size:.9375rem; }
+    .toggle-label input[type=checkbox] { width:18px; height:18px; accent-color:var(--orange); cursor:pointer; }
+    .toggle-tekst  { color:var(--gray-900); }
+
+    /* Bewerkbare velden */
+    .edit-group   { margin-bottom: 1rem; }
+    .edit-label   { display:block; font-size:.8rem; font-weight:700; color:var(--gray-500); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.375rem; }
+    .edit-input   { width:100%; padding:.55rem .8rem; border:1.5px solid var(--gray-200); border-radius:8px; font-size:.9375rem; background:#fff; transition:border-color .15s; }
+    .edit-input:focus { outline:none; border-color:var(--orange); box-shadow:0 0 0 3px var(--orange-ring); }
+    .edit-input-lg { font-size:1.05rem; font-weight:600; }
+    .edit-textarea { width:100%; padding:.55rem .8rem; border:1.5px solid var(--gray-200); border-radius:8px; font-size:.9rem; resize:vertical; font-family:inherit; line-height:1.5; }
+    .edit-textarea:focus { outline:none; border-color:var(--orange); box-shadow:0 0 0 3px var(--orange-ring); }
+
+    /* Specs editor */
+    .specs-edit-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:.6rem; }
+    .specs-editor      { display:flex; flex-direction:column; gap:.4rem; }
+
+    .spec-edit-row {
+      display:grid;
+      grid-template-columns: 1fr 1.6fr auto;
+      gap:.5rem;
+      align-items:center;
+      background:var(--gray-50);
+      padding:.5rem .6rem;
+      border-radius:8px;
+      border:1px solid var(--gray-200);
+    }
+    .spec-edit-row input {
+      padding:.45rem .65rem;
+      border:1.5px solid var(--gray-200);
+      border-radius:7px;
+      font-size:.875rem;
+      background:#fff;
+      width:100%;
+    }
+    .spec-edit-row input:focus { outline:none; border-color:var(--green); }
+    .spec-del-btn {
+      width:32px; height:32px;
+      border:none; background:none;
+      color:var(--gray-400); font-size:1.1rem;
+      cursor:pointer; border-radius:6px;
+      transition:background .15s, color .15s;
+      display:flex; align-items:center; justify-content:center;
+      flex-shrink:0;
+    }
+    .spec-del-btn:hover { background:#fef2f2; color:var(--red); }
+
+    .specs-leeg {
+      text-align:center; padding:1rem;
+      color:var(--gray-400); font-size:.875rem;
+      border:1.5px dashed var(--gray-200);
+      border-radius:8px;
+    }
+
+    /* Preview layout */
+    .product-details-wrap {
+      padding-top: 1rem;
+      border-top: 1px solid var(--gray-200);
+      margin-top: .5rem;
+    }
+    .foto-kiezer-sectie {
+      margin-top: 1.25rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--gray-200);
+    }
+
+    /* Foto-kiezer */
+    .foto-kiezer {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: .6rem;
+    }
+    @media (max-width: 600px) {
+      .foto-kiezer { grid-template-columns: repeat(3, 1fr); }
+    }
+    .foto-item {
+      position: relative;
+      cursor: pointer;
+      border-radius: 10px;
+      border: 2.5px solid var(--gray-200);
+      overflow: hidden;
+      background: var(--gray-50);
+      aspect-ratio: 1 / 1;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .foto-item:hover { border-color: var(--gray-400); }
+    .foto-item.geselecteerd {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 3px var(--orange-ring);
+    }
+    .foto-item img {
+      width: 100% !important; height: 100% !important;
+      max-height: none !important;
+      object-fit: contain !important;
+      padding: 6px;
+      border: none !important;
+      border-radius: 0 !important;
+      background: transparent !important;
+      mix-blend-mode: multiply;
+      transition: transform .2s;
+    }
+    .foto-item:hover img { transform: scale(1.06); }
+    .foto-item .foto-check {
+      display: none;
+      position: absolute; top: 5px; right: 5px;
+      background: var(--orange); color: #fff;
+      border-radius: 50%; width: 22px; height: 22px;
+      font-size: .7rem; font-weight: 700;
+      align-items: center; justify-content: center;
+    }
+    .foto-item.geselecteerd .foto-check { display: flex; }
+    .foto-laadfout {
+      grid-column: 1/-1;
+      text-align: center; color: var(--gray-400);
+      font-size: .875rem; padding: 1rem;
+    }
+  </style>
+
+  <script>
+    let productData = null;
+
+    // Min datum = vandaag, standaard = 2 dagen verder
+    const today       = new Date();
+    const twoDays     = new Date(today); twoDays.setDate(today.getDate() + 2);
+    const fmtDate     = d => d.toISOString().split('T')[0];
+    document.getElementById('eindDatum').min   = fmtDate(today);
+    document.getElementById('eindDatum').value = fmtDate(twoDays);
+
+    document.getElementById('productInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') zoekProduct();
+    });
+
+    // ── Dupliceer: vul form voorin als ?dup=ID meegegeven ─────────────────────
+    (async function laadDup() {
+      const dup = new URLSearchParams(location.search).get('dup');
+      if (!dup) return;
+      try {
+        const res  = await fetch(`/api/auction/${dup}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById('productInput').value     = data.title;
+        document.getElementById('editTitel').value        = data.title;
+        document.getElementById('editBeschrijving').value = data.description || '';
+        renderFotoKiezer(data.image_url ? [data.image_url] : []);
+        renderSpecsEditor(data.specs || []);
+
+        document.getElementById('preview').style.display = 'block';
+        document.getElementById('stap2').style.display   = 'block';
+        document.getElementById('zoekStatus').textContent    = '📋 Gegevens overgenomen – pas aan en maak een nieuwe veiling aan.';
+        document.getElementById('zoekStatus').style.display  = 'block';
+
+        // Sla image_url op zodat maakVeiling() hem meeneemt
+        productData = { image_url: data.image_url, beschrijving: data.description, specs: data.specs };
+      } catch (e) { /* stil falen */ }
+    })();
+
+    // ── Product ophalen ────────────────────────────────────────────────────
+    async function zoekProduct() {
+      const naam = document.getElementById('productInput').value.trim();
+      if (!naam) return;
+
+      const btn    = document.getElementById('zoekBtn');
+      const status = document.getElementById('zoekStatus');
+      btn.textContent = 'Bezig...';
+      btn.disabled    = true;
+      status.textContent = '⏳ AI haalt specificaties op en zoekt een foto...';
+      status.style.display = 'block';
+      document.getElementById('preview').style.display = 'none';
+      document.getElementById('stap2').style.display   = 'none';
+
+      try {
+        const res  = await fetch('/api/product-info', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({product_name: naam})
+        });
+        const data = await res.json();
+        productData = data;
+
+        // Vul bewerkbare velden
+        document.getElementById('editTitel').value        = naam;
+        document.getElementById('editBeschrijving').value = data.beschrijving || '';
+
+        // Foto-kiezer tonen
+        renderFotoKiezer(data.image_urls || (data.image_url ? [data.image_url] : []));
+
+        // Specs editor vullen
+        renderSpecsEditor(data.specs || []);
+
+        document.getElementById('preview').style.display = 'block';
+        document.getElementById('stap2').style.display   = 'block';
+        status.style.display = 'none';
+      } catch (e) {
+        status.textContent = '❌ Ophalen mislukt. Probeer opnieuw.';
+      } finally {
+        btn.textContent = 'Ophalen';
+        btn.disabled    = false;
+      }
+    }
+
+    // ── Foto-kiezer ────────────────────────────────────────────────────────
+    function renderFotoKiezer(urls) {
+      const kiezer = document.getElementById('fotoKiezer');
+      kiezer.innerHTML = '';
+
+      if (!urls || urls.length === 0) {
+        kiezer.innerHTML = '<div class="foto-laadfout">Geen foto\'s gevonden</div>';
+        document.getElementById('previewImg').src = '';
+        if (productData) productData.image_url = '';
+        return;
+      }
+
+      urls.forEach((url, i) => {
+        const item = document.createElement('div');
+        item.className = 'foto-item' + (i === 0 ? ' geselecteerd' : '');
+        item.dataset.url = url;
+        item.innerHTML = `
+          <img src="${escHtml(url)}" alt="Foto ${i+1}" loading="lazy"
+               onerror="this.closest('.foto-item').style.display='none'">
+          <span class="foto-check">✓</span>
+        `;
+        item.addEventListener('click', () => kiesFoto(item, url));
+        kiezer.appendChild(item);
+      });
+
+      // Selecteer automatisch de eerste
+      kiesFoto(kiezer.querySelector('.foto-item'), urls[0]);
+    }
+
+    function kiesFoto(item, url) {
+      // Deselecteer alle
+      document.querySelectorAll('.foto-item').forEach(el => el.classList.remove('geselecteerd'));
+      // Selecteer dit item
+      item.classList.add('geselecteerd');
+      // Sla op in productData + hidden img (voor maakVeiling)
+      if (productData) productData.image_url = url;
+      document.getElementById('previewImg').src = url;
+    }
+
+    // ── Specs editor ───────────────────────────────────────────────────────
+    function renderSpecsEditor(specs) {
+      const editor = document.getElementById('specsEditor');
+      editor.innerHTML = '';
+      if (specs.length === 0) {
+        editor.innerHTML = '<div class="specs-leeg">Geen specificaties — klik op "+ Spec toevoegen"</div>';
+        return;
+      }
+      specs.forEach((s, i) => voegSpecRijToe(s.naam, s.waarde));
+    }
+
+    function voegSpecRijToe(naam = '', waarde = '') {
+      const editor = document.getElementById('specsEditor');
+      // Verwijder lege melding indien aanwezig
+      const leeg = editor.querySelector('.specs-leeg');
+      if (leeg) leeg.remove();
+
+      const rij = document.createElement('div');
+      rij.className = 'spec-edit-row';
+      rij.innerHTML = `
+        <input type="text"  class="spec-naam"  placeholder="Naam (bijv. RAM)"    value="${escHtml(naam)}">
+        <input type="text"  class="spec-waarde" placeholder="Waarde (bijv. 16GB)" value="${escHtml(waarde)}">
+        <button class="spec-del-btn" title="Verwijderen" onclick="verwijderSpec(this)">✕</button>
+      `;
+      editor.appendChild(rij);
+    }
+
+    function voegSpecToe() {
+      voegSpecRijToe();
+      // Focus op het nieuwe naam-veld
+      const rijen = document.querySelectorAll('.spec-edit-row');
+      rijen[rijen.length - 1].querySelector('.spec-naam').focus();
+    }
+
+    function verwijderSpec(btn) {
+      const rij    = btn.closest('.spec-edit-row');
+      const editor = document.getElementById('specsEditor');
+      rij.remove();
+      if (editor.querySelectorAll('.spec-edit-row').length === 0) {
+        editor.innerHTML = '<div class="specs-leeg">Geen specificaties — klik op "+ Spec toevoegen"</div>';
+      }
+    }
+
+    function leesSpecs() {
+      return Array.from(document.querySelectorAll('.spec-edit-row')).map(rij => ({
+        naam:  rij.querySelector('.spec-naam').value.trim(),
+        waarde: rij.querySelector('.spec-waarde').value.trim()
+      })).filter(s => s.naam || s.waarde);
+    }
+
+    // ── Veiling aanmaken ──────────────────────────────────────────────────
+    async function maakVeiling() {
+      const titel       = document.getElementById('editTitel').value.trim();
+      const beschr      = document.getElementById('editBeschrijving').value.trim();
+      // Sla alleen het pad op (niet de volledige http://localhost URL)
+      const rawSrc      = document.getElementById('previewImg').src;
+      const imgUrl      = rawSrc ? new URL(rawSrc).pathname : '';
+      const specs       = leesSpecs();
+      const startPrijs  = parseFloat(document.getElementById('startPrijs').value);
+      const minVer      = parseFloat(document.getElementById('minVerhoging').value);
+      const datum       = document.getElementById('eindDatum').value;
+      const tijd        = document.getElementById('eindTijd').value;
+      const pass        = document.getElementById('adminPass').value;
+      const errorEl     = document.getElementById('aanmaakError');
+
+      errorEl.style.display = 'none';
+
+      if (!titel)                       return showErr('Vul een productnaam in');
+      if (isNaN(startPrijs) || startPrijs < 0) return showErr('Vul een geldige startprijs in');
+      if (isNaN(minVer)     || minVer <= 0)    return showErr('Vul een geldige minimale verhoging in');
+      if (!datum || !tijd)              return showErr('Vul een einddatum en -tijd in');
+      if (!pass)                        return showErr('Vul het beheerderswachtwoord in');
+
+      try {
+        const emailVer = document.getElementById('emailVerificatie').checked;
+        const domeinen = document.getElementById('toegestaaneDomeinen').value.trim();
+
+        const res = await fetch('/api/auction/create', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title:                      titel,
+            description:                beschr,
+            image_url:                  imgUrl,
+            specs:                      specs,
+            start_price:                startPrijs,
+            min_increment:              minVer,
+            end_time:                   `${datum}T${tijd}:00`,
+            admin_password:             pass,
+            require_email_verification: emailVer,
+            allowed_domains:            domeinen,
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          return showErr(err.detail || 'Aanmaken mislukt');
+        }
+
+        const data = await res.json();
+        const link = `${window.location.origin}/veiling/${data.auction_id}`;
+
+        document.getElementById('veilingLink').textContent = link;
+        document.getElementById('veilingLink').href        = link;
+        document.getElementById('openLink').href           = link;
+        document.getElementById('toegangscode').textContent = data.access_code;
+
+        document.getElementById('stap1').style.display    = 'none';
+        document.getElementById('stap2').style.display    = 'none';
+        document.getElementById('resultaat').style.display = 'block';
+        window.scrollTo({top: 0, behavior: 'smooth'});
+      } catch {
+        showErr('Er is een fout opgetreden. Probeer opnieuw.');
+      }
+    }
+
+    function toggleDomeinen() {
+      const aan = document.getElementById('emailVerificatie').checked;
+      document.getElementById('domeinenGroup').style.display = aan ? 'block' : 'none';
+    }
+
+    function showErr(msg) {
+      const el = document.getElementById('aanmaakError');
+      el.textContent = msg; el.style.display = 'block';
+    }
+
+    function kopieerLink() {
+      const link = document.getElementById('veilingLink').textContent;
+      const code = document.getElementById('toegangscode').textContent;
+      navigator.clipboard.writeText(`${link}\nToegangsode: ${code}`);
+      document.getElementById('kopieerMsg').style.display = 'block';
+      setTimeout(() => document.getElementById('kopieerMsg').style.display = 'none', 2500);
+    }
+
+    function escHtml(str) {
+      return (str || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Biedingen – {{ auction.title }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="admin-body">
+  <nav class="navbar">
+    <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
+    <div style="display:flex;gap:.75rem;align-items:center">
+      <a href="/admin/overzicht" class="btn btn-ghost btn-sm">← Overzicht</a>
+      <a href="/admin/logout" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <div class="page-header">
+      <h1>Biedingen beheren</h1>
+      <p>{{ auction.title }} &nbsp;·&nbsp; #{{ auction.id }}</p>
+    </div>
+
+    <div class="card">
+
+      <!-- Samenvatting -->
+      <div class="bied-summary">
+        <div class="bied-sum-item">
+          <span class="bied-sum-label">Huidig bod</span>
+          <span class="bied-sum-val" id="huidigBod">€ {{ "%.2f"|format(auction.current_price) }}</span>
+        </div>
+        <div class="bied-sum-item">
+          <span class="bied-sum-label">Aantal biedingen</span>
+          <span class="bied-sum-val" id="aantalBiedingen">{{ bids|length }}</span>
+        </div>
+        <div class="bied-sum-item">
+          <span class="bied-sum-label">Eindigt op</span>
+          <span class="bied-sum-val">{{ auction.end_time[:16].replace("T", " ") }}</span>
+        </div>
+      </div>
+
+      <!-- Tabel -->
+      {% if bids %}
+      <table class="bied-tabel" style="margin-top:1.25rem">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Naam</th>
+            <th class="right">Bod</th>
+            <th>Tijdstip</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="biedTabel">
+          {% for b in bids %}
+          <tr class="bied-rij {% if loop.first %}bied-rij-top{% endif %}" id="bid-{{ b.id }}">
+            <td style="color:var(--gray-400);font-size:.8rem">{{ b.id }}</td>
+            <td class="bied-naam">{{ b.bidder_name }}</td>
+            <td class="bied-bedrag right">€ {{ "%.2f"|format(b.amount) }}</td>
+            <td class="bied-datum">{{ b.timestamp[:16].replace("T", " ") }}</td>
+            <td style="text-align:right">
+              <button class="btn btn-ghost btn-sm del-btn"
+                      style="color:var(--red);border-color:var(--red)"
+                      onclick="verwijderBod({{ b.id }}, this)">
+                Verwijderen
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="text-align:center;padding:2.5rem;color:var(--gray-400)">
+        <div style="font-size:2rem;margin-bottom:.5rem">📭</div>
+        <p>Nog geen biedingen geplaatst.</p>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <style>
+    .bied-summary {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    .bied-sum-item {
+      display: flex;
+      flex-direction: column;
+      gap: .2rem;
+    }
+    .bied-sum-label {
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--gray-400);
+    }
+    .bied-sum-val {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--gray-900);
+    }
+    #aantalBiedingen { transition: color .3s; }
+  </style>
+
+  <script>
+    async function verwijderBod(bidId, btn) {
+      if (!confirm('Dit bod verwijderen? Dit kan niet ongedaan worden gemaakt.')) return;
+
+      btn.disabled = true;
+      btn.textContent = '...';
+
+      const res = await fetch(`/api/bid/${bidId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        btn.disabled = false;
+        btn.textContent = 'Verwijderen';
+        alert('Verwijderen mislukt.');
+        return;
+      }
+
+      const data = await res.json();
+
+      // Rij weghalen
+      const rij = document.getElementById(`bid-${bidId}`);
+      rij.style.transition = 'opacity .25s';
+      rij.style.opacity = '0';
+      setTimeout(() => {
+        rij.remove();
+
+        // Nieuwe top-rij markeren
+        const rijen = document.querySelectorAll('#biedTabel .bied-rij');
+        rijen.forEach(r => r.classList.remove('bied-rij-top'));
+        if (rijen.length > 0) rijen[0].classList.add('bied-rij-top');
+
+        // Samenvatting bijwerken
+        document.getElementById('huidigBod').textContent =
+          '€ ' + data.new_price.toFixed(2).replace('.', ',');
+        const n = document.querySelectorAll('#biedTabel .bied-rij').length;
+        const el = document.getElementById('aantalBiedingen');
+        el.textContent = n;
+        el.style.color = 'var(--orange)';
+        setTimeout(() => el.style.color = '', 800);
+      }, 280);
+    }
+  </script>
+</body>
+</html>

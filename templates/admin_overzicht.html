@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Veilingoverzicht – Tosch</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="admin-body">
+  <nav class="navbar">
+    <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
+    <div style="display:flex;gap:.75rem;align-items:center">
+      <a href="/admin" class="btn btn-ghost btn-sm">+ Nieuwe veiling</a>
+      <a href="/admin/logout" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <!-- Header -->
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:1rem">
+      <div>
+        <h1>Veilingoverzicht</h1>
+        <p>Alle aangemaakte veilingen</p>
+      </div>
+      {% if archief %}
+      <button class="btn btn-ghost btn-sm" id="archiefToggle" onclick="toggleArchief()">
+        📦 Toon archief ({{ archief|length }})
+      </button>
+      {% endif %}
+    </div>
+
+    <!-- Actieve veilingen -->
+    {% if auctions %}
+    <div class="overzicht-grid">
+      {% for a in auctions %}
+      <div class="overzicht-card {% if a.is_ended %}card-ended{% endif %}" id="card-{{ a.id }}">
+
+        {% if a.image_url %}
+        <img src="{{ a.image_url }}" alt="{{ a.title }}" class="ov-img">
+        {% endif %}
+
+        <div class="ov-body">
+          <div class="ov-top">
+            {% if a.is_ended %}
+              <span class="ov-badge badge-afgelopen">● Afgelopen</span>
+            {% else %}
+              <span class="ov-badge badge-live">● Live</span>
+            {% endif %}
+            <div style="display:flex;gap:.5rem;align-items:center">
+              {% if a.require_email_verification %}
+              <span class="ov-badge" style="background:#eff6ff;color:#1d4ed8">✉ E-mail</span>
+              {% endif %}
+              <span class="ov-id">#{{ a.id }}</span>
+            </div>
+          </div>
+
+          <div class="ov-titel">{{ a.title }}</div>
+
+          <div class="ov-stats">
+            <div class="ov-stat">
+              <span class="ov-stat-label">Huidig bod</span>
+              <span class="ov-stat-val">€ {{ "%.2f"|format(a.current_price) }}</span>
+            </div>
+            <div class="ov-stat">
+              <span class="ov-stat-label">Biedingen</span>
+              <span class="ov-stat-val">{{ a.bid_count }}</span>
+            </div>
+            <div class="ov-stat">
+              <span class="ov-stat-label">Toegangscode</span>
+              <span class="ov-stat-val ov-code">{{ a.access_code }}</span>
+            </div>
+            <div class="ov-stat">
+              <span class="ov-stat-label">Eindigt op</span>
+              <span class="ov-stat-val">{{ a.end_time[:16].replace("T", " ") }}</span>
+            </div>
+          </div>
+
+          <div class="ov-actions">
+            <a href="/veiling/{{ a.id }}" target="_blank" class="btn btn-primary btn-sm">Veiling openen</a>
+            <button class="btn btn-ghost btn-sm"
+              onclick="kopieer('{{ request.url.scheme }}://{{ request.url.netloc }}/veiling/{{ a.id }}', '{{ a.access_code }}', this)">
+              Link kopiëren
+            </button>
+            <a href="/admin/veiling/{{ a.id }}/biedingen" class="btn btn-ghost btn-sm">🗑 Biedingen</a>
+            <a href="/admin?dup={{ a.id }}" class="btn btn-ghost btn-sm">📋 Dupliceer</a>
+            {% if a.is_ended %}
+            <button class="btn btn-ghost btn-sm" style="color:var(--gray-400)"
+              onclick="archiveer({{ a.id }}, this)">📦 Archiveer</button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="card" style="text-align:center;padding:3rem">
+      <div style="font-size:2.5rem;margin-bottom:.75rem">📭</div>
+      <p style="color:var(--gray-500)">Nog geen veilingen aangemaakt.</p>
+      <a href="/admin" class="btn btn-primary" style="margin-top:1rem">Eerste veiling aanmaken</a>
+    </div>
+    {% endif %}
+
+    <!-- Archief sectie (standaard verborgen) -->
+    {% if archief %}
+    <div id="archiefSectie" style="display:none;margin-top:2rem">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
+        <h2 style="font-size:1.1rem;font-weight:700;color:var(--gray-500)">📦 Archief</h2>
+        <span style="font-size:.8rem;color:var(--gray-400)">{{ archief|length }} veilingen</span>
+      </div>
+      <div class="overzicht-grid">
+        {% for a in archief %}
+        <div class="overzicht-card card-archived" id="card-{{ a.id }}">
+
+          {% if a.image_url %}
+          <img src="{{ a.image_url }}" alt="{{ a.title }}" class="ov-img" style="opacity:.5">
+          {% endif %}
+
+          <div class="ov-body">
+            <div class="ov-top">
+              <span class="ov-badge badge-archief">📦 Gearchiveerd</span>
+              <span class="ov-id">#{{ a.id }}</span>
+            </div>
+
+            <div class="ov-titel" style="color:var(--gray-500)">{{ a.title }}</div>
+
+            <div class="ov-stats">
+              <div class="ov-stat">
+                <span class="ov-stat-label">Winnend bod</span>
+                <span class="ov-stat-val">€ {{ "%.2f"|format(a.current_price) }}</span>
+              </div>
+              <div class="ov-stat">
+                <span class="ov-stat-label">Biedingen</span>
+                <span class="ov-stat-val">{{ a.bid_count }}</span>
+              </div>
+              <div class="ov-stat">
+                <span class="ov-stat-label">Toegangscode</span>
+                <span class="ov-stat-val ov-code" style="color:var(--gray-400)">{{ a.access_code }}</span>
+              </div>
+              <div class="ov-stat">
+                <span class="ov-stat-label">Afgelopen op</span>
+                <span class="ov-stat-val">{{ a.end_time[:16].replace("T", " ") }}</span>
+              </div>
+            </div>
+
+            <div class="ov-actions">
+              <a href="/veiling/{{ a.id }}" target="_blank" class="btn btn-ghost btn-sm">Bekijken</a>
+              <button class="btn btn-ghost btn-sm"
+                onclick="herstel({{ a.id }}, this)">↩ Herstel</button>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <style>
+    .overzicht-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.25rem;
+    }
+    .overzicht-card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.07), 0 4px 20px rgba(0,0,0,.06);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-ended    { opacity: .8; }
+    .card-archived { opacity: .6; filter: grayscale(.3); }
+    .ov-img {
+      width: 100%; height: 180px;
+      object-fit: contain;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .ov-body { padding: 1.25rem; flex: 1; display: flex; flex-direction: column; gap: .75rem; }
+    .ov-top  { display: flex; justify-content: space-between; align-items: center; }
+    .ov-badge {
+      font-size: .75rem; font-weight: 700;
+      padding: .25rem .75rem; border-radius: 999px;
+    }
+    .badge-live     { background: var(--green-bg); color: var(--green); }
+    .badge-afgelopen{ background: var(--gray-100);  color: var(--gray-500); }
+    .badge-archief  { background: #f3f4f6; color: #9ca3af; }
+    .ov-id    { font-size: .8rem; color: var(--gray-400); }
+    .ov-titel { font-size: 1.1rem; font-weight: 700; color: var(--gray-900); }
+    .ov-stats { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem .75rem; }
+    .ov-stat  { display: flex; flex-direction: column; }
+    .ov-stat-label { font-size: .7rem; font-weight: 600; color: var(--gray-400); letter-spacing: .05em; text-transform: uppercase; }
+    .ov-stat-val   { font-size: .9375rem; font-weight: 700; color: var(--gray-900); margin-top: .1rem; }
+    .ov-code       { letter-spacing: 3px; color: var(--green); }
+    .ov-actions    { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: auto; }
+  </style>
+
+  <script>
+    function kopieer(link, code, btn) {
+      navigator.clipboard.writeText(link + '\nToegangsode: ' + code);
+      const orig = btn.textContent;
+      btn.textContent = '✓ Gekopieerd!';
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    function toggleArchief() {
+      const sectie = document.getElementById('archiefSectie');
+      const btn    = document.getElementById('archiefToggle');
+      if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;  // bewaar origineel eerst
+      const open = sectie.style.display === 'none';
+      sectie.style.display = open ? 'block' : 'none';
+      btn.textContent = open ? '📦 Verberg archief' : btn.dataset.orig;
+    }
+
+    async function archiveer(id, btn) {
+      btn.disabled = true; btn.textContent = '...';
+      await fetch(`/api/auction/${id}/archive`, { method: 'POST' });
+      document.getElementById(`card-${id}`).style.transition = 'opacity .3s';
+      document.getElementById(`card-${id}`).style.opacity   = '0';
+      setTimeout(() => location.reload(), 350);
+    }
+
+    async function herstel(id, btn) {
+      btn.disabled = true; btn.textContent = '...';
+      await fetch(`/api/auction/${id}/unarchive`, { method: 'POST' });
+      location.reload();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tosch Veiling</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card" style="max-width:420px;width:100%">
+      <img src="/static/tosch-logo.png" alt="Tosch" style="height:48px;margin-bottom:1rem">
+      <h1>Tosch Veiling</h1>
+      <p class="subtitle">Voer je toegangscode in om deel te nemen aan een veiling</p>
+
+      <div class="form-group">
+        <label>Toegangscode</label>
+        <input id="code" type="text" placeholder="bijv. AB12CD" maxlength="6"
+               style="text-transform:uppercase;letter-spacing:4px;font-size:1.3rem;text-align:center">
+      </div>
+      <div id="error" class="alert alert-error" style="display:none"></div>
+      <button class="btn btn-primary btn-full" onclick="zoekVeiling()">Deelnemen →</button>
+
+      <div class="divider"></div>
+      <a href="/admin" class="btn btn-ghost btn-full" style="color:var(--gray-500)">Beheerder inloggen</a>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('code').addEventListener('keydown', e => {
+      if (e.key === 'Enter') zoekVeiling();
+    });
+    document.getElementById('code').addEventListener('input', e => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+
+    async function zoekVeiling() {
+      const code = document.getElementById('code').value.trim().toUpperCase();
+      if (code.length < 6) {
+        showError('Voer een geldige 6-tekens code in');
+        return;
+      }
+      // zoek veiling met deze code via simpele check
+      const res = await fetch(`/api/find?code=${code}`);
+      if (res.ok) {
+        const data = await res.json();
+        sessionStorage.setItem('access_code', code);
+        window.location.href = `/veiling/${data.auction_id}`;
+      } else {
+        showError('Toegangscode niet gevonden. Controleer de code en probeer opnieuw.');
+      }
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Veiling – Tosch</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* ── Winnaar overlay ───────────────────────────────────────────────────── */
+    #winnerOverlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,.82);
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem;
+    }
+    #confettiCanvas {
+      position: fixed; inset: 0; pointer-events: none; z-index: 1001;
+    }
+    .winner-card {
+      background: #fff; border-radius: 22px;
+      padding: 2.75rem 2.25rem 2rem; max-width: 440px; width: 100%;
+      text-align: center; position: relative; z-index: 1002;
+      box-shadow: 0 24px 64px rgba(0,0,0,.35);
+      animation: winnerPop .45s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes winnerPop {
+      from { transform: scale(.75); opacity: 0; }
+      to   { transform: scale(1);  opacity: 1; }
+    }
+    .winner-icon  { font-size: 4rem; margin-bottom: .6rem; line-height: 1; }
+    .winner-titel { font-size: 1.75rem; font-weight: 800; margin-bottom: .4rem; color: var(--gray-900); }
+    .winner-sub   { color: var(--gray-500); margin-bottom: 1.5rem; font-size: .9375rem; }
+
+    .winner-naam-box {
+      background: var(--orange-l); border: 2px solid var(--orange-ring);
+      border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: .75rem;
+    }
+    .winner-naam-label { font-size: .7rem; font-weight: 700; color: var(--orange);
+      letter-spacing: .08em; text-transform: uppercase; margin-bottom: .25rem; }
+    .winner-naam  { font-size: 1.5rem; font-weight: 800; color: var(--gray-900); }
+
+    .winner-bod-box {
+      background: var(--green-bg); border: 2px solid var(--green-ring);
+      border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem;
+    }
+    .winner-bod-label { font-size: .7rem; font-weight: 700; color: var(--green);
+      letter-spacing: .08em; text-transform: uppercase; margin-bottom: .25rem; }
+    .winner-bod   { font-size: 2rem; font-weight: 800; color: var(--green); }
+
+    /* Als JIJ gewonnen hebt */
+    .winner-jij-box {
+      background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+      border: 2px solid var(--orange);
+      border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;
+    }
+    .winner-jij-label  { font-size: .7rem; font-weight: 700; color: var(--orange);
+      letter-spacing: .08em; text-transform: uppercase; margin-bottom: .25rem; }
+    .winner-jij-bedrag { font-size: 2rem; font-weight: 800; color: var(--orange); }
+
+    /* ── Countdown alarm ────────────────────────────────────────────────────── */
+    @keyframes timerAlarm {
+      0%, 100% { color: var(--gray-900); }
+      50%      { color: #dc2626; }
+    }
+    .countdown-alarm { animation: timerAlarm 1s ease-in-out infinite; }
+  </style>
+</head>
+<body class="auction-body">
+
+  <!-- Confetti canvas -->
+  <canvas id="confettiCanvas" style="display:none"></canvas>
+
+  <!-- Winnaar overlay -->
+  <div id="winnerOverlay" style="display:none">
+    <div class="winner-card" id="winnerCard"></div>
+  </div>
+
+  <!-- ── Join overlay ──────────────────────────────────────────────────────── -->
+  <div id="joinOverlay" class="join-overlay" style="display:none">
+    <div class="join-card">
+      <img src="/static/tosch-logo.png" alt="Tosch" style="height:40px;margin-bottom:1.25rem">
+      <h2 style="font-size:1.4rem;font-weight:700;margin-bottom:.375rem">Deelnemen aan veiling</h2>
+      <p id="joinSubtitel" style="color:var(--gray-500);margin-bottom:1.5rem;font-size:.9375rem">Vul je naam en toegangscode in</p>
+
+      <!-- Stap 1a: toegangscode (geen e-mailverificatie) -->
+      <div id="stapCode">
+        <div class="fpanel-group">
+          <label>Je naam</label>
+          <input id="joinNaam" type="text" placeholder="Jan Jansen" class="fpanel-input">
+        </div>
+        <div class="fpanel-group">
+          <label>Toegangscode</label>
+          <input id="joinCode" type="text" placeholder="AB12CD" maxlength="6" class="fpanel-input"
+                 style="text-transform:uppercase;letter-spacing:6px;font-size:1.3rem;text-align:center">
+        </div>
+        <div id="joinErrorCode" class="fpanel-alert fpanel-alert-error" style="display:none"></div>
+        <button class="bod-btn" onclick="deelnemen()">Deelnemen →</button>
+      </div>
+
+      <!-- Stap 1b: e-mail invoeren -->
+      <div id="stapEmail" style="display:none">
+        <div class="fpanel-group">
+          <label>Je naam</label>
+          <input id="joinNaamEmail" type="text" placeholder="Jan Jansen" class="fpanel-input">
+        </div>
+        <div class="fpanel-group">
+          <label>E-mailadres</label>
+          <input id="joinEmailAdres" type="email" placeholder="naam@bedrijf.nl" class="fpanel-input">
+        </div>
+        <div id="joinErrorEmail" class="fpanel-alert fpanel-alert-error" style="display:none"></div>
+        <button class="bod-btn" id="stuurCodeBtn" onclick="stuurVerificatiecode()">Verificatiecode versturen →</button>
+      </div>
+
+      <!-- Stap 2: code invoeren -->
+      <div id="stapVerificatie" style="display:none">
+        <p style="color:var(--gray-500);font-size:.875rem;margin-bottom:1.25rem">
+          We hebben een code gestuurd naar <strong id="emailWeergave"></strong>
+        </p>
+        <div class="fpanel-group">
+          <label>Verificatiecode</label>
+          <input id="joinVerifCode" type="text" placeholder="123456" maxlength="6" class="fpanel-input"
+                 style="letter-spacing:10px;font-size:1.5rem;text-align:center;font-weight:800">
+        </div>
+        <div id="joinErrorVerif" class="fpanel-alert fpanel-alert-error" style="display:none"></div>
+        <button class="bod-btn" onclick="controleerCode()">Bevestigen →</button>
+        <button class="btn btn-ghost btn-full" style="margin-top:.5rem"
+                onclick="nieuweCode()">Nieuwe code aanvragen</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Auction page ──────────────────────────────────────────────────────── -->
+  <div id="auctionPage" style="display:none">
+    <div class="ac-wrap">
+
+      <!-- LEFT ──────────────────────────────────────────────────────────────── -->
+      <div class="ac-main">
+
+        <!-- Productafbeelding -->
+        <div class="img-card" id="imgCard" style="display:none">
+          <img id="productImg" src="" alt="Productafbeelding" class="product-hero-img"
+               onload="document.getElementById('imgCard').style.display='flex'"
+               onerror="document.getElementById('imgCard').style.display='none'">
+        </div>
+
+        <!-- Productinfo -->
+        <div class="ac-card info-card">
+          <div id="liveBadge" class="nu-live-badge">● NU LIVE</div>
+          <h1 id="productTitel" class="product-h1"></h1>
+
+          <div class="beschrijving-blok">
+            <div class="beschrijving-label">Beschrijving</div>
+            <div id="productBeschrijving" class="beschrijving-tekst"></div>
+            <div id="specsLijst" class="specs-blok"></div>
+          </div>
+        </div>
+
+        <!-- Biedgeschiedenis -->
+        <div class="ac-card">
+          <div class="bied-hist-header">
+            <span class="bied-hist-titel">Biedgeschiedenis (Top 10)</span>
+            <span id="aantalBiedingen" class="bied-count">0 biedingen</span>
+          </div>
+          <table class="bied-tabel">
+            <thead>
+              <tr>
+                <th>NAAM</th>
+                <th>DATUM</th>
+                <th class="right">BOD</th>
+              </tr>
+            </thead>
+            <tbody id="bidTableBody">
+              <tr><td colspan="3" class="no-bids-row">Nog geen biedingen</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- RIGHT (sticky panel) ──────────────────────────────────────────────── -->
+      <div class="ac-sidebar">
+        <div class="bid-panel-card">
+
+          <!-- Header -->
+          <div class="panel-topbar">
+            <span class="panel-tag">Live biedpaneel</span>
+            <span class="panel-ver">v1.0.0</span>
+          </div>
+          <div class="panel-realtime">Realtime</div>
+
+          <!-- Circulaire timer -->
+          <div class="circle-wrap">
+            <svg class="circle-svg" viewBox="0 0 200 200">
+              <defs>
+                <linearGradient id="arcGrad" gradientUnits="userSpaceOnUse" x1="100" y1="20" x2="100" y2="180">
+                  <stop offset="0%"   stop-color="#15803d"/>
+                  <stop offset="100%" stop-color="#86efac"/>
+                </linearGradient>
+              </defs>
+              <circle cx="100" cy="100" r="80" fill="none" stroke="#dcfce7" stroke-width="13"/>
+              <circle id="arcCircle" cx="100" cy="100" r="80" fill="none"
+                      stroke="url(#arcGrad)" stroke-width="13" stroke-linecap="round"
+                      stroke-dasharray="502.65" stroke-dashoffset="125"
+                      transform="rotate(-90 100 100)"
+                      style="transition:stroke-dashoffset 1s linear"/>
+            </svg>
+            <div class="circle-inner">
+              <span class="circle-live" id="circleLiveBadge">LIVE</span>
+              <span class="circle-label">RESTEREND</span>
+              <span id="countdownDisplay" class="circle-time">--</span>
+              <span class="circle-sub">Bied direct mee</span>
+            </div>
+          </div>
+
+          <!-- Huidig bod -->
+          <div class="huidig-bod-blok">
+            <div class="huidig-bod-label">Huidig bod</div>
+            <div id="huidigBodBedrag" class="huidig-bod-getal">€0,00</div>
+            <div id="huidigBodMeta" class="huidig-bod-meta"></div>
+          </div>
+
+          <!-- Info pills -->
+          <div class="info-pills-row">
+            <div class="info-pill-box">
+              <div class="ipl">MINIMALE BIEDSTAP</div>
+              <div id="minBiedstap" class="ipv">€1,00</div>
+            </div>
+            <div class="info-pill-box">
+              <div class="ipl">EINDIGT OP</div>
+              <div id="eindigOp" class="ipv">--</div>
+            </div>
+          </div>
+
+          <!-- Toegangscode melding -->
+          <div class="code-info-box">
+            🔒 Toegang via persoonlijke code
+          </div>
+
+          <!-- Afgelopen (in panel) -->
+          <div id="afgelopenBanner" style="display:none" class="afgelopen-blok">
+            <div class="afgelopen-icon">🏁</div>
+            <div class="afgelopen-titel">Veiling afgelopen</div>
+            <div id="winnerTekst" class="winner-name"></div>
+          </div>
+
+          <!-- Bied formulier -->
+          <div id="biedFormWrap">
+            <div class="plaats-bod-titel">Plaats je bod</div>
+
+            <div class="fpanel-group">
+              <label>Je naam</label>
+              <input id="biedNaam" type="text" class="fpanel-input" readonly>
+            </div>
+
+            <div class="fpanel-group">
+              <label>Bedrag (€)</label>
+              <div class="bedrag-stepper">
+                <button class="stepper-btn" onclick="bedragAanpassen(-1)">−</button>
+                <span id="bedragDisplay" class="stepper-val">0,00</span>
+                <button class="stepper-btn" onclick="bedragAanpassen(1)">+</button>
+              </div>
+              <div id="minBodLabel" class="min-bod-hint">Minimum bod: €0,00</div>
+            </div>
+
+            <div id="biedError"   class="fpanel-alert fpanel-alert-error"   style="display:none"></div>
+            <div id="biedSuccess" class="fpanel-alert fpanel-alert-success" style="display:none"></div>
+
+            <button class="bod-btn" onclick="bied()">Bod plaatsen</button>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const AUCTION_ID = {{ auction_id }};
+    let mijnNaam = '', mijnCode = '';
+    let auctionData = null;
+    let currentBedrag = 0, minBedrag = 0;
+    let endTime = null;
+    let countdownInterval = null;
+    let alarmGegeven = false;
+    let emailVerificatieVereist = false;
+
+    // ── Persistent login ───────────────────────────────────────────────────────
+    const LS_CODE  = `veiling_${AUCTION_ID}_code`;
+    const LS_NAAM  = `veiling_${AUCTION_ID}_naam`;
+    const LS_EMAIL = `veiling_${AUCTION_ID}_email`;
+
+    window.addEventListener('load', async () => {
+      // Haal eerst veiling op om te weten of e-mailverificatie vereist is
+      const res  = await fetch(`/api/auction/${AUCTION_ID}`);
+      if (!res.ok) { toonJoinOverlay(); return; }
+      const data = await res.json();
+      emailVerificatieVereist = data.require_email_verification;
+
+      const savedCode  = localStorage.getItem(LS_CODE);
+      const savedNaam  = localStorage.getItem(LS_NAAM);
+      const savedEmail = localStorage.getItem(LS_EMAIL);
+
+      if (savedCode && savedNaam) {
+        mijnCode = savedCode;
+        mijnNaam = savedNaam;
+        toonVeiling(data);
+      } else {
+        toonJoinOverlay(savedNaam, savedCode, savedEmail);
+      }
+    });
+
+    function toonJoinOverlay(naam = '', code = '', email = '') {
+      if (emailVerificatieVereist) {
+        document.getElementById('joinSubtitel').textContent = 'Verifieer je e-mailadres om deel te nemen';
+        document.getElementById('stapCode').style.display  = 'none';
+        document.getElementById('stapEmail').style.display = 'block';
+        if (naam)  document.getElementById('joinNaamEmail').value   = naam;
+        if (email) document.getElementById('joinEmailAdres').value  = email;
+      } else {
+        document.getElementById('joinSubtitel').textContent = 'Vul je naam en toegangscode in';
+        document.getElementById('stapCode').style.display  = 'block';
+        document.getElementById('stapEmail').style.display = 'none';
+        if (naam) document.getElementById('joinNaam').value = naam;
+        if (code) document.getElementById('joinCode').value = code;
+        document.getElementById('joinCode').addEventListener('input',
+          e => e.target.value = e.target.value.toUpperCase());
+      }
+      document.getElementById('joinOverlay').style.display = 'flex';
+    }
+
+    // Stap 1a: toegangscode flow
+    async function deelnemen() {
+      const naam = document.getElementById('joinNaam').value.trim();
+      const code = document.getElementById('joinCode').value.trim().toUpperCase();
+      if (!naam) return showJoinError('code', 'Vul je naam in');
+      if (code.length < 6) return showJoinError('code', 'Voer een geldige 6-tekens code in');
+      mijnNaam = naam; mijnCode = code;
+      localStorage.setItem(LS_CODE, code);
+      localStorage.setItem(LS_NAAM, naam);
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+      await laadVeiling();
+    }
+
+    // Stap 1b: e-mail versturen
+    async function stuurVerificatiecode() {
+      const naam  = document.getElementById('joinNaamEmail').value.trim();
+      const email = document.getElementById('joinEmailAdres').value.trim().toLowerCase();
+      if (!naam)                     return showJoinError('email', 'Vul je naam in');
+      if (!email || !email.includes('@')) return showJoinError('email', 'Vul een geldig e-mailadres in');
+
+      const btn = document.getElementById('stuurCodeBtn');
+      btn.textContent = 'Versturen...'; btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/send-code', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ email, auction_id: AUCTION_ID })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          return showJoinError('email', err.detail || 'Versturen mislukt');
+        }
+        localStorage.setItem(LS_EMAIL, email);
+        localStorage.setItem(LS_NAAM, naam);
+        document.getElementById('emailWeergave').textContent = email;
+        document.getElementById('stapEmail').style.display       = 'none';
+        document.getElementById('stapVerificatie').style.display = 'block';
+        document.getElementById('joinVerifCode').focus();
+      } catch {
+        showJoinError('email', 'Verbindingsfout. Probeer opnieuw.');
+      } finally {
+        btn.textContent = 'Verificatiecode versturen →'; btn.disabled = false;
+      }
+    }
+
+    // Stap 2: code controleren
+    async function controleerCode() {
+      const code  = document.getElementById('joinVerifCode').value.trim();
+      const email = localStorage.getItem(LS_EMAIL) || '';
+      const naam  = localStorage.getItem(LS_NAAM)  || '';
+      if (code.length < 6) return showJoinError('verif', 'Voer de 6-cijferige code in');
+
+      try {
+        const res = await fetch('/api/auth/verify-code', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ email, code, auction_id: AUCTION_ID })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          return showJoinError('verif', err.detail || 'Verificatie mislukt');
+        }
+        const data = await res.json();
+        mijnNaam = naam;
+        mijnCode = data.access_code;
+        localStorage.setItem(LS_CODE, mijnCode);
+        if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+        await laadVeiling();
+      } catch {
+        showJoinError('verif', 'Verbindingsfout. Probeer opnieuw.');
+      }
+    }
+
+    function nieuweCode() {
+      document.getElementById('stapVerificatie').style.display = 'none';
+      document.getElementById('stapEmail').style.display       = 'block';
+      document.getElementById('joinVerifCode').value = '';
+      document.getElementById('joinErrorVerif').style.display = 'none';
+    }
+
+    function showJoinError(stap, msg) {
+      const ids = { code: 'joinErrorCode', email: 'joinErrorEmail', verif: 'joinErrorVerif' };
+      const el = document.getElementById(ids[stap] || 'joinErrorCode');
+      el.textContent = msg; el.style.display = 'block';
+    }
+
+    async function laadVeiling() {
+      try {
+        const res = await fetch(`/api/auction/${AUCTION_ID}`);
+        if (!res.ok) { showJoinError('code', 'Veiling niet gevonden'); return; }
+        toonVeiling(await res.json());
+      } catch { showJoinError('code', 'Kan veiling niet laden. Probeer opnieuw.'); }
+    }
+
+    function toonVeiling(data) {
+      auctionData = data;
+      document.getElementById('joinOverlay').style.display = 'none';
+      document.getElementById('auctionPage').style.display = 'block';
+      document.title = data.title + ' – Tosch Veiling';
+
+      document.getElementById('productTitel').textContent = data.title;
+      document.getElementById('productBeschrijving').textContent = data.description;
+
+      if (data.image_url) {
+        document.getElementById('productImg').src = data.image_url;
+      } else {
+        document.getElementById('imgCard').style.display = 'none';
+      }
+
+      // Specs
+      const sl = document.getElementById('specsLijst');
+      sl.innerHTML = (data.specs || []).map(s =>
+        `<div class="spec-rij"><span class="spec-n">${s.naam}</span><span class="spec-v">${s.waarde}</span></div>`
+      ).join('');
+
+      endTime = new Date(data.end_time);
+      document.getElementById('eindigOp').textContent = fmtDatumKort(endTime);
+      startCountdown();
+
+      updateBod(data);
+      updateBidHistory(data.bids);
+      document.getElementById('biedNaam').value = mijnNaam;
+
+      if (data.status === 'ended') toonAfgelopen(data.winner, data.current_price, false);
+      verbindWS();
+    }
+
+    function updateBod(data) {
+      const n = (data.bids || []).length;
+      document.getElementById('huidigBodBedrag').textContent = fmtEuro(data.current_price);
+      document.getElementById('aantalBiedingen').textContent = n + ' biedingen';
+      if (data.bids && data.bids.length > 0) {
+        const top = data.bids[0];
+        document.getElementById('huidigBodMeta').textContent =
+          fmtDatum(top.timestamp) + ' • ' + n + ' biedingen';
+      }
+      // Eerste bod mag gelijk zijn aan de startprijs; daarna altijd + min_increment
+      const heeftBiedingen = data.bids && data.bids.length > 0;
+      minBedrag     = heeftBiedingen ? data.current_price + data.min_increment : data.start_price;
+      currentBedrag = minBedrag;
+      document.getElementById('minBiedstap').textContent  = fmtEuro(data.min_increment);
+      document.getElementById('minBodLabel').textContent  = 'Minimum bod: ' + fmtEuro(minBedrag);
+      document.getElementById('bedragDisplay').textContent = fmtPlain(currentBedrag);
+    }
+
+    function updateBidHistory(bids) {
+      const tbody = document.getElementById('bidTableBody');
+      const n     = (bids || []).length;
+      document.getElementById('aantalBiedingen').textContent = n + ' biedingen';
+      if (!bids || bids.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="no-bids-row">Nog geen biedingen</td></tr>';
+        return;
+      }
+      tbody.innerHTML = bids.map((b, i) => `
+        <tr class="${i === 0 ? 'bied-rij-top' : 'bied-rij'}">
+          <td class="bied-naam">${b.bidder_name}</td>
+          <td class="bied-datum">${fmtDatum(b.timestamp)}</td>
+          <td class="bied-bedrag right">${fmtEuro(b.amount)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function bedragAanpassen(dir) {
+      if (!auctionData) return;
+      currentBedrag = Math.max(minBedrag, currentBedrag + dir * auctionData.min_increment);
+      document.getElementById('bedragDisplay').textContent = fmtPlain(currentBedrag);
+    }
+
+    async function bied() {
+      const errEl = document.getElementById('biedError');
+      const okEl  = document.getElementById('biedSuccess');
+      errEl.style.display = okEl.style.display = 'none';
+      try {
+        const res = await fetch('/api/bid', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ auction_id: AUCTION_ID, bidder_name: mijnNaam, amount: currentBedrag, access_code: mijnCode })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          errEl.textContent = err.detail || 'Bod mislukt';
+          errEl.style.display = 'block';
+        } else {
+          okEl.textContent = '✓ Bod van ' + fmtEuro(currentBedrag) + ' geplaatst!';
+          okEl.style.display = 'block';
+          setTimeout(() => okEl.style.display = 'none', 4000);
+        }
+      } catch {
+        errEl.textContent = 'Verbindingsfout. Probeer opnieuw.';
+        errEl.style.display = 'block';
+      }
+    }
+
+    // ── Countdown ──────────────────────────────────────────────────────────────
+    function startCountdown() {
+      if (countdownInterval) clearInterval(countdownInterval);
+      countdownInterval = setInterval(updateCountdown, 1000);
+      updateCountdown();
+    }
+
+    function updateCountdown() {
+      const diff = endTime - new Date();
+      const arc  = document.getElementById('arcCircle');
+      const disp = document.getElementById('countdownDisplay');
+      const circ = 502.65;
+
+      if (diff <= 0) {
+        clearInterval(countdownInterval);
+        disp.textContent = 'Afgelopen';
+        arc.style.strokeDashoffset = circ;
+        return;
+      }
+
+      // ⏰ Eindalarm bij nog 5 minuten
+      if (diff < 5 * 60 * 1000 && !alarmGegeven) {
+        alarmGegeven = true;
+        disp.classList.add('countdown-alarm');
+        arc.style.stroke = '#dc2626';
+        arc.style.transition = 'stroke-dashoffset 1s linear';
+        speelAlarm();
+      }
+
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+
+      disp.textContent = d > 0 ? d + 'd ' + h + 'u'
+                       : h > 0 ? h + 'u ' + pad(m) + 'm'
+                       :         pad(m) + ':' + pad(s);
+
+      const fraction = Math.min(diff / (7 * 86400000), 1);
+      arc.style.strokeDashoffset = circ * (1 - fraction);
+    }
+
+    // ── Afgelopen / winnaar-scherm ─────────────────────────────────────────────
+    function toonAfgelopen(winner, winnendBod, animated) {
+      // Panel bijwerken
+      document.getElementById('biedFormWrap').style.display = 'none';
+      document.getElementById('afgelopenBanner').style.display = 'flex';
+      const badge = document.getElementById('liveBadge');
+      badge.textContent = '● AFGELOPEN';
+      badge.style.background = '#f3f4f6';
+      badge.style.color = '#6b7280';
+      const circleBadge = document.getElementById('circleLiveBadge');
+      circleBadge.textContent = 'KLAAR';
+      circleBadge.style.background = '#f3f4f6';
+      circleBadge.style.color = '#6b7280';
+
+      if (!winner) {
+        document.getElementById('winnerTekst').textContent = 'Geen winnaar (geen biedingen)';
+        return;
+      }
+      document.getElementById('winnerTekst').textContent = '🏆 Winnaar: ' + winner;
+
+      // Winnaar-overlay tonen
+      const isJij = winner.toLowerCase() === mijnNaam.toLowerCase();
+      const card  = document.getElementById('winnerCard');
+
+      if (isJij) {
+        card.innerHTML = `
+          <div class="winner-icon">🏆</div>
+          <div class="winner-titel">Gefeliciteerd!</div>
+          <div class="winner-sub">Jij hebt deze veiling gewonnen, ${winner}!</div>
+          <div class="winner-jij-box">
+            <div class="winner-jij-label">Jouw winnend bod</div>
+            <div class="winner-jij-bedrag">${fmtEuro(winnendBod)}</div>
+          </div>
+          <button class="btn btn-primary btn-full" onclick="document.getElementById('winnerOverlay').style.display='none';stopConfetti()">Sluiten</button>
+        `;
+        document.getElementById('winnerOverlay').style.display = 'flex';
+        if (animated) startConfetti();
+      } else {
+        card.innerHTML = `
+          <div class="winner-icon">🏁</div>
+          <div class="winner-titel">Veiling afgelopen</div>
+          <div class="winner-sub">De winnaar is bekend!</div>
+          <div class="winner-naam-box">
+            <div class="winner-naam-label">Winnaar</div>
+            <div class="winner-naam">${winner}</div>
+          </div>
+          <div class="winner-bod-box">
+            <div class="winner-bod-label">Winnend bod</div>
+            <div class="winner-bod">${fmtEuro(winnendBod)}</div>
+          </div>
+          <button class="btn btn-ghost btn-full" onclick="document.getElementById('winnerOverlay').style.display='none'">Sluiten</button>
+        `;
+        document.getElementById('winnerOverlay').style.display = 'flex';
+      }
+    }
+
+    // ── WebSocket ──────────────────────────────────────────────────────────────
+    function verbindWS() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const socket = new WebSocket(`${proto}://${location.host}/ws/${AUCTION_ID}`);
+
+      socket.onmessage = async () => {
+        // Onthoud wie er nu bovenaan staat vóór de update
+        const prevLeider = auctionData?.bids?.[0]?.bidder_name || null;
+
+        const res  = await fetch(`/api/auction/${AUCTION_ID}`);
+        const data = await res.json();
+        auctionData = data;
+
+        const nieuweLeider = data.bids?.[0]?.bidder_name || null;
+
+        // 🔔 Overboden-melding
+        if (prevLeider && prevLeider.toLowerCase() === mijnNaam.toLowerCase()
+            && nieuweLeider && nieuweLeider.toLowerCase() !== mijnNaam.toLowerCase()) {
+          stuurNotificatie(
+            'Je bent overboden! 📢',
+            `${nieuweLeider} biedt nu ${fmtEuro(data.current_price)} – bied snel terug!`
+          );
+        }
+
+        updateBod(data);
+        updateBidHistory(data.bids);
+
+        const el = document.getElementById('huidigBodBedrag');
+        el.classList.add('flash-green');
+        setTimeout(() => el.classList.remove('flash-green'), 800);
+
+        // Veiling zojuist afgelopen?
+        if (data.status === 'ended') {
+          toonAfgelopen(data.winner, data.current_price, true);
+        }
+      };
+
+      socket.onclose = () => setTimeout(verbindWS, 3000);
+    }
+
+    // ── 🔔 Browser-notificatie ─────────────────────────────────────────────────
+    function stuurNotificatie(titel, tekst) {
+      if (!('Notification' in window)) return;
+      if (Notification.permission === 'granted') {
+        new Notification(titel, { body: tekst, icon: '/static/tosch-logo.png' });
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(p => {
+          if (p === 'granted') new Notification(titel, { body: tekst, icon: '/static/tosch-logo.png' });
+        });
+      }
+    }
+
+    // ── ⏰ Alarm ───────────────────────────────────────────────────────────────
+    function speelAlarm() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [0, 250, 500].forEach(delay => {
+          const osc  = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.type = 'sine';
+          osc.frequency.value = 880;
+          const t = ctx.currentTime + delay / 1000;
+          gain.gain.setValueAtTime(0.25, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+          osc.start(t);
+          osc.stop(t + 0.35);
+        });
+      } catch (e) { /* AudioContext niet beschikbaar */ }
+    }
+
+    // ── 🎊 Confetti ────────────────────────────────────────────────────────────
+    let confettiAnimId  = null;
+    const CONFETTI_COLORS = ['#FF6F00','#16a34a','#3b82f6','#f59e0b','#ec4899','#8b5cf6'];
+
+    function startConfetti() {
+      const canvas = document.getElementById('confettiCanvas');
+      canvas.style.display = 'block';
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+      const ctx = canvas.getContext('2d');
+
+      const particles = Array.from({length: 160}, () => ({
+        x:        Math.random() * canvas.width,
+        y:        Math.random() * canvas.height - canvas.height,
+        w:        Math.random() * 10 + 6,
+        h:        Math.random() * 5  + 3,
+        color:    CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        rot:      Math.random() * 360,
+        rotSpeed: (Math.random() - .5) * 9,
+        vx:       (Math.random() - .5) * 3,
+        vy:       Math.random() * 3 + 2,
+        opacity:  Math.random() * .5 + .5
+      }));
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles.forEach(p => {
+          ctx.save();
+          ctx.translate(p.x + p.w / 2, p.y + p.h / 2);
+          ctx.rotate(p.rot * Math.PI / 180);
+          ctx.globalAlpha = p.opacity;
+          ctx.fillStyle   = p.color;
+          ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+          ctx.restore();
+          p.x   += p.vx;
+          p.y   += p.vy;
+          p.rot += p.rotSpeed;
+          if (p.y > canvas.height) { p.y = -20; p.x = Math.random() * canvas.width; }
+        });
+        confettiAnimId = requestAnimationFrame(draw);
+      }
+      draw();
+      setTimeout(stopConfetti, 7000);
+    }
+
+    function stopConfetti() {
+      if (confettiAnimId) { cancelAnimationFrame(confettiAnimId); confettiAnimId = null; }
+      document.getElementById('confettiCanvas').style.display = 'none';
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    function fmtEuro(n)  { return new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR'}).format(n); }
+    function fmtPlain(n) { return n.toFixed(2).replace('.', ','); }
+    function fmtDatum(ts) {
+      const d = new Date(ts);
+      return d.toLocaleDateString('nl-NL') + ', ' + d.toLocaleTimeString('nl-NL');
+    }
+    function fmtDatumKort(d) {
+      return d.toLocaleDateString('nl-NL') + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+    function pad(n) { return String(n).padStart(2, '0'); }
+  </script>
+</body>
+</html>

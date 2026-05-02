@@ -1,0 +1,32 @@
+# Secrets & config
+.env
+
+# Database
+veiling.db
+
+# Productfoto's (worden on-the-fly gedownload)
+static/images/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Logfiles
+*.log
+server.log
+uvicorn.log
+
+# Claude intern geheugen
+CLAUDE.md
+
+# OS
+.DS_Store
+Thumbs.db
