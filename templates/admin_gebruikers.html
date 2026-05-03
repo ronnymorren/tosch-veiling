@@ -26,8 +26,9 @@
     <!-- Beheerder toevoegen -->
     <div class="card">
       <h2 class="card-title">Beheerder toevoegen</h2>
-      <div style="display:flex;gap:.75rem">
-        <input id="nieuwEmail" type="email" placeholder="naam@bedrijf.nl" style="flex:1">
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <input id="nieuwNaam" type="text" placeholder="Naam" style="flex:1;min-width:140px">
+        <input id="nieuwEmail" type="email" placeholder="naam@bedrijf.nl" style="flex:2;min-width:180px">
         <button class="btn btn-primary" onclick="voegToe()">Toevoegen</button>
       </div>
       <div id="toevoegMsg" class="alert" style="display:none;margin-top:.75rem"></div>
@@ -82,18 +83,18 @@
 
   <script>
     async function voegToe() {
+      const naam  = document.getElementById('nieuwNaam').value.trim();
       const email = document.getElementById('nieuwEmail').value.trim().toLowerCase();
       const msg   = document.getElementById('toevoegMsg');
       msg.style.display = 'none';
 
-      if (!email || !email.includes('@')) {
-        return toonMsg('Vul een geldig e-mailadres in', 'error');
-      }
+      if (!naam) return toonMsg('Vul een naam in', 'error');
+      if (!email || !email.includes('@')) return toonMsg('Vul een geldig e-mailadres in', 'error');
 
       const res = await fetch('/api/admin/gebruikers', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ naam, email })
       });
       const data = await res.json();
 
@@ -123,6 +124,9 @@
       el.style.display = 'block';
     }
 
+    document.getElementById('nieuwNaam').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('nieuwEmail').focus();
+    });
     document.getElementById('nieuwEmail').addEventListener('keydown', e => {
       if (e.key === 'Enter') voegToe();
     });

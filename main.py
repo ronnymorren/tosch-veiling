@@ -1006,8 +1006,11 @@ async def voeg_manager_toe(request: Request):
         raise HTTPException(status_code=403, detail="Geen toegang")
     data  = await request.json()
     email = data.get("email", "").strip().lower()
+    naam  = data.get("naam", "").strip()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Ongeldig e-mailadres")
+    if not naam:
+        raise HTTPException(status_code=400, detail="Vul een naam in")
     if email in EIGENAREN:
         raise HTTPException(status_code=400, detail="Dit e-mailadres is een eigenaar en kan niet als beheerder worden toegevoegd")
 
@@ -1016,11 +1019,11 @@ async def voeg_manager_toe(request: Request):
     cur.execute("SELECT role FROM users WHERE email = %s", (email,))
     row = cur.fetchone()
     if row:
-        cur.execute("UPDATE users SET role = 'manager' WHERE email = %s", (email,))
+        cur.execute("UPDATE users SET role = 'manager', naam = %s WHERE email = %s", (naam, email))
     else:
         cur.execute(
             "INSERT INTO users (email, naam, created_at, role) VALUES (%s, %s, %s, 'manager')",
-            (email, email.split("@")[0], datetime.now().isoformat())
+            (email, naam, datetime.now().isoformat())
         )
     conn.commit()
     conn.close()
