@@ -176,7 +176,7 @@ def stuur_afloop_mail(to: str, titel: str, winnaar: str, winnend_bod: float, is_
         <p style="color:#374151;margin:0 0 24px">{intro}</p>
         <p style="color:#6b7280;font-size:.875rem;margin:0">
           Bedankt voor jouw deelname. Houd onze volgende veilingen in de gaten via
-          <a href="https://veiling.tosch.eu" style="color:#FF6F00">veiling.tosch.eu</a>.
+          <a href="https://veiling.tosch.nl" style="color:#FF6F00">veiling.tosch.nl</a>.
         </p>
       </div>
     </div>"""
