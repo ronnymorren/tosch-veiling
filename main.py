@@ -13,6 +13,11 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 AMS = ZoneInfo("Europe/Amsterdam")
+
+def nu() -> datetime:
+    """Huidige tijd in Amsterdam-tijdzone (naïef ISO-formaat voor DB-opslag)."""
+    return nu()
+
 from pathlib import Path
 
 import psycopg2
@@ -85,7 +90,7 @@ def log_audit(actor_email: str, action: str, target: str = None, ip: str = None)
         cur.execute(
             "INSERT INTO admin_audit (actor_email, action, target, ip, created_at) "
             "VALUES (%s, %s, %s, %s, %s)",
-            (actor_email, action, target, ip, datetime.now().isoformat())
+            (actor_email, action, target, ip, nu().isoformat())
         )
         conn.commit()
         conn.close()
@@ -271,7 +276,7 @@ def init_db():
             INSERT INTO users (email, naam, created_at, role)
             VALUES (%s, %s, %s, 'owner')
             ON CONFLICT (email) DO UPDATE SET role = 'owner'
-        """, (seed_email, seed_naam, datetime.now().isoformat()))
+        """, (seed_email, seed_naam, nu().isoformat()))
 
     conn.commit()
     conn.close()
@@ -342,7 +347,7 @@ async def veilingen_page(request: Request):
     cur.execute("SELECT * FROM auctions WHERE archived = 0 ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
-    now = datetime.now(AMS).strftime("%Y-%m-%dT%H:%M:%S")
+    now = nu().strftime("%Y-%m-%dT%H:%M:%S")
     auctions = []
     for r in rows:
         d = dict(r)
@@ -444,7 +449,7 @@ async def admin_overzicht(request: Request):
     """)
     rows = cur.fetchall()
     conn.close()
-    now = datetime.now(AMS).strftime("%Y-%m-%dT%H:%M:%S")
+    now = nu().strftime("%Y-%m-%dT%H:%M:%S")
     actief, archief = [], []
     for r in rows:
         d = dict(r)
@@ -671,7 +676,7 @@ async def get_auction(auction_id: int):
     bids = cur.fetchall()
 
     end_time  = datetime.fromisoformat(row["end_time"])
-    is_ended  = datetime.now(AMS).replace(tzinfo=None) > end_time or row["status"] == "ended"
+    is_ended  = nu() > end_time or row["status"] == "ended"
     req_email = bool(row["require_email_verification"])
 
     winner = None
@@ -750,7 +755,7 @@ async def send_login_code(request: Request):
     begroeting = user_row["naam"] if known else "Hoi"
 
     code       = "".join(secrets.choice("0123456789") for _ in range(6))
-    expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
+    expires_at = (nu() + timedelta(minutes=10)).isoformat()
 
     # auction_id = 0 is schildwacht voor globale login (geen specifieke veiling)
     cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = 0", (email,))
@@ -816,7 +821,7 @@ async def verify_login_code(request: Request):
     if not row:
         conn.close()
         raise HTTPException(400, "Geen actieve code gevonden. Vraag een nieuwe code aan.")
-    if datetime.now() > datetime.fromisoformat(row["expires_at"]):
+    if nu() > datetime.fromisoformat(row["expires_at"]):
         conn.close()
         raise HTTPException(400, "Code verlopen. Vraag een nieuwe code aan.")
     if not hmac.compare_digest(row["code"], code):  # 🔒 Fix 9: timing-safe OTP vergelijking
@@ -837,7 +842,7 @@ async def verify_login_code(request: Request):
         naam = naam_nieuw
         cur.execute(
             "INSERT INTO users (email, naam, created_at) VALUES (%s, %s, %s)",
-            (email, naam, datetime.now().isoformat())
+            (email, naam, nu().isoformat())
         )
 
     conn.commit()
@@ -884,7 +889,7 @@ async def place_bid(request: Request):
             raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
 
     end_time = datetime.fromisoformat(row["end_time"])
-    if datetime.now(AMS).replace(tzinfo=None) > end_time:
+    if nu() > end_time:
         conn.close()
         raise HTTPException(status_code=400, detail="De veiling is al afgelopen")
 
@@ -895,7 +900,7 @@ async def place_bid(request: Request):
         conn.close()
         raise HTTPException(status_code=400, detail=f"Minimaal bod is €{min_bid:.2f}")
 
-    timestamp  = datetime.now().isoformat()
+    timestamp  = nu().isoformat()
     ip_address = get_client_ip(request)
     cur.execute(
         "INSERT INTO bids (auction_id, bidder_name, amount, timestamp, email, ip_address) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -1049,7 +1054,7 @@ async def voeg_manager_toe(request: Request):
     else:
         cur.execute(
             "INSERT INTO users (email, naam, created_at, role) VALUES (%s, %s, %s, 'manager')",
-            (email, naam, datetime.now().isoformat())
+            (email, naam, nu().isoformat())
         )
     conn.commit()
     conn.close()
