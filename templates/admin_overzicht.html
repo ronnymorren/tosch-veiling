@@ -10,7 +10,8 @@
 <body class="admin-body">
   <nav class="navbar">
     <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
-    <div style="display:flex;gap:.75rem;align-items:center">
+    <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+      <a href="/veilingen" class="btn btn-ghost btn-sm">Veilingen</a>
       <a href="/admin" class="btn btn-ghost btn-sm">+ Nieuwe veiling</a>
       {% if is_owner %}
       <a href="/admin/gebruikers" class="btn btn-ghost btn-sm">Gebruikers</a>

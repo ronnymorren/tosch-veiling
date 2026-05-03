@@ -143,9 +143,7 @@
           return toonFout('code', err.detail || 'Verificatie mislukt');
         }
         const data = await res.json();
-        const isPrivileged = data.role === 'owner' || data.role === 'manager';
-        const goToDefault  = nextUrl === '/veilingen' || nextUrl === '/';
-        window.location.href = (isPrivileged && goToDefault) ? '/keuze' : nextUrl;
+        window.location.href = nextUrl;
       } catch {
         toonFout('code', 'Verbindingsfout. Probeer opnieuw.');
       } finally {

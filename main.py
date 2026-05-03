@@ -323,22 +323,8 @@ def valideer_next(next_url: str, standaard: str = "/") -> str:
 async def home(request: Request):
     user = get_user(request)
     if user:
-        role = get_user_role(user["email"])
-        if role in ("owner", "manager"):
-            return RedirectResponse(url="/keuze", status_code=303)
         return RedirectResponse(url="/veilingen", status_code=303)
     return templates.TemplateResponse(request, "home.html")
-
-
-@app.get("/keuze", response_class=HTMLResponse)
-async def keuze_page(request: Request):
-    user = get_user(request)
-    if not user:
-        return RedirectResponse(url="/", status_code=303)
-    role = get_user_role(user["email"])
-    if role not in ("owner", "manager"):
-        return RedirectResponse(url="/veilingen", status_code=303)
-    return templates.TemplateResponse(request, "keuze.html", {"user": user, "role": role})
 
 
 @app.get("/veilingen", response_class=HTMLResponse)
@@ -364,7 +350,12 @@ async def veilingen_page(request: Request):
             if domain not in allowed:
                 continue
         auctions.append(d)
-    return templates.TemplateResponse(request, "veilingen.html", {"auctions": auctions, "user": user})
+    role = get_user_role(email)
+    return templates.TemplateResponse(request, "veilingen.html", {
+        "auctions": auctions,
+        "user": user,
+        "is_admin": role in ("manager", "owner"),
+    })
 
 
 @app.get("/uitloggen")

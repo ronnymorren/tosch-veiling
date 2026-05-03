@@ -142,9 +142,12 @@
     <a href="/veilingen" class="nav-brand">
       <img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo">
     </a>
-    <div style="display:flex;align-items:center;gap:1rem">
+    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
       <span style="color:var(--gray-500);font-size:.875rem">👋 {{ user.naam }}</span>
-      <a href="/uitloggen" class="btn btn-ghost btn-sm">Uitloggen</a>
+      {% if is_admin %}
+      <a href="/admin/overzicht" class="btn btn-ghost btn-sm">Beheerdersportaal</a>
+      {% endif %}
+      <a href="/uitloggen" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
     </div>
   </nav>
 
