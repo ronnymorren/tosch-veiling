@@ -400,14 +400,21 @@ async def admin_logout():
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
-    if not is_admin(request):
+    user = get_user(request)
+    if not user:
         return RedirectResponse(url="/?next=/admin", status_code=303)
-    return templates.TemplateResponse(request, "admin.html",
-        {"is_owner": is_owner(request)})
+    role = get_user_role(user["email"])
+    if role not in ("manager", "owner"):
+        return RedirectResponse(url="/?next=/admin", status_code=303)
+    return templates.TemplateResponse(request, "admin.html", {"is_owner": role == "owner"})
 
 @app.get("/admin/overzicht", response_class=HTMLResponse)
 async def admin_overzicht(request: Request):
-    if not is_admin(request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse(url="/?next=/admin/overzicht", status_code=303)
+    role = get_user_role(user["email"])
+    if role not in ("manager", "owner"):
         return RedirectResponse(url="/?next=/admin/overzicht", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
@@ -430,7 +437,7 @@ async def admin_overzicht(request: Request):
         else:
             actief.append(d)
     return templates.TemplateResponse(request, "admin_overzicht.html",
-        {"auctions": actief, "archief": archief, "is_owner": is_owner(request)})
+        {"auctions": actief, "archief": archief, "is_owner": role == "owner"})
 
 @app.get("/veiling/{auction_id}", response_class=HTMLResponse)
 async def auction_page(request: Request, auction_id: int):
@@ -962,10 +969,12 @@ async def unarchive_auction(auction_id: int, request: Request):
 
 @app.get("/admin/veiling/{auction_id}/biedingen", response_class=HTMLResponse)
 async def admin_biedingen(request: Request, auction_id: int):
-    if not is_admin(request):
-        return RedirectResponse(
-            url=f"/?next=/admin/veiling/{auction_id}/biedingen", status_code=303
-        )
+    user = get_user(request)
+    if not user:
+        return RedirectResponse(url=f"/?next=/admin/veiling/{auction_id}/biedingen", status_code=303)
+    role = get_user_role(user["email"])
+    if role not in ("manager", "owner"):
+        return RedirectResponse(url=f"/?next=/admin/veiling/{auction_id}/biedingen", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
     cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
@@ -981,7 +990,7 @@ async def admin_biedingen(request: Request, auction_id: int):
     return templates.TemplateResponse(request, "admin_biedingen.html", {
         "auction":  dict(auction),
         "bids":     [dict(b) for b in bids],
-        "is_owner": is_owner(request),
+        "is_owner": role == "owner",
     })
 
 

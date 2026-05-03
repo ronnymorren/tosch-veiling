@@ -634,11 +634,23 @@ input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px 
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 .site-footer {
-  text-align: center;
-  padding: 1.5rem;
-  font-size: .75rem;
-  color: var(--gray-400);
+  background: #1E4962;
+  border-top: 3px solid var(--orange);
   margin-top: 2rem;
+  padding: 1.1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .75rem;
+  color: rgba(255,255,255,.65);
+  font-size: .8rem;
+  letter-spacing: .01em;
+}
+.footer-logo {
+  height: 20px;
+  width: auto;
+  filter: brightness(0) invert(1);
+  opacity: .8;
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
