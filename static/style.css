@@ -632,6 +632,15 @@ input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px 
 .nav-brand { display:flex; align-items:center; text-decoration:none; }
 .nav-logo  { height:36px; width:auto; display:block; }
 
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.site-footer {
+  text-align: center;
+  padding: 1.5rem;
+  font-size: .75rem;
+  color: var(--gray-400);
+  margin-top: 2rem;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 800px) {
   .ac-wrap           { grid-template-columns: 1fr; }
@@ -640,4 +649,12 @@ input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px 
   .form-grid         { grid-template-columns: 1fr; }
   .product-preview   { grid-template-columns: 1fr; }
   .info-pills-row    { grid-template-columns: 1fr 1fr; }
+
+  /* Fix: datum/tijd inputs niet breder dan container op mobiel */
+  input[type=date],
+  input[type=time],
+  input[type=datetime-local] {
+    min-width: 0;
+    width: 100%;
+  }
 }

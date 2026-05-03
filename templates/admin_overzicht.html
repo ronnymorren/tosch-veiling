@@ -12,6 +12,10 @@
     <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
     <div style="display:flex;gap:.75rem;align-items:center">
       <a href="/admin" class="btn btn-ghost btn-sm">+ Nieuwe veiling</a>
+      {% if is_owner %}
+      <a href="/admin/gebruikers" class="btn btn-ghost btn-sm">Gebruikers</a>
+      <a href="/admin/audit" class="btn btn-ghost btn-sm">Auditlog</a>
+      {% endif %}
       <a href="/admin/logout" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
     </div>
   </nav>
@@ -218,6 +222,8 @@
     #verwijderModal { display: none; }
     #verwijderModal.open { display: flex; }
   </style>
+
+  <footer class="site-footer">v1.5</footer>
 
   <script>
     function kopieer(link, btn) {

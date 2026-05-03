@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tosch Veiling — Welkom</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+  <div class="page-center">
+    <div class="card" style="max-width:460px;width:100%;text-align:center">
+      <img src="/static/tosch-logo.png" alt="Tosch" style="height:48px;margin-bottom:1.25rem">
+      <h1 style="font-size:1.5rem;font-weight:800;margin-bottom:.35rem">Welkom, {{ user.naam }}</h1>
+      <p class="subtitle" style="margin-bottom:2rem">Wat wil je doen?</p>
+
+      <div style="display:flex;flex-direction:column;gap:.875rem">
+        <a href="/admin/overzicht" class="btn btn-primary btn-full" style="padding:1rem;font-size:1rem">
+          Beheerpaneel
+          <span style="display:block;font-size:.8rem;font-weight:400;opacity:.85;margin-top:.2rem">
+            Veilingen beheren, aanmaken en overzichten bekijken
+          </span>
+        </a>
+        <a href="/veilingen" class="btn btn-ghost btn-full" style="padding:1rem;font-size:1rem">
+          Deelnemen aan veiling
+          <span style="display:block;font-size:.8rem;font-weight:400;color:var(--gray-400);margin-top:.2rem">
+            Bekijk actieve veilingen en plaats biedingen
+          </span>
+        </a>
+      </div>
+
+      <div class="divider"></div>
+      <a href="/admin/logout" style="font-size:.875rem;color:var(--gray-400);text-decoration:none">
+        Uitloggen
+      </a>
+    </div>
+  </div>
+
+  <footer class="site-footer">v1.5</footer>
+</body>
+</html>

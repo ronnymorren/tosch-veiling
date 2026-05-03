@@ -28,16 +28,17 @@ from ddgs import DDGS
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")   # gedeelde keys
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)  # project-specifiek
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")          # 🔒 Fix 1: geen hardcoded fallback
-SESSION_SECRET = os.getenv("SESSION_SECRET")          # 🔒 Fix 2: aparte signing key (niet het wachtwoord)
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")      # niet meer vereist, behouden voor backward compat
+SESSION_SECRET = os.getenv("SESSION_SECRET")
 DATABASE_URL   = os.getenv("DATABASE_URL", "")
 SESSION_COOKIE = "tosch_admin"
-SESSION_TTL    = 8 * 3600   # 8 uur
+SESSION_TTL    = 8 * 3600
 USER_COOKIE    = "tosch_user"
-USER_TTL       = 8 * 3600   # 8 uur
+USER_TTL       = 8 * 3600
 
-if not ADMIN_PASSWORD:
-    raise RuntimeError("ADMIN_PASSWORD is niet ingesteld. Voeg toe aan .env of Vercel Environment Variables.")
+# Vaste eigenaren — worden bij opstart in de database gezaaid
+EIGENAREN = ["rm@tosch.nl", "dm@tosch.nl"]
+
 if not SESSION_SECRET:
     raise RuntimeError("SESSION_SECRET is niet ingesteld. Voeg toe aan .env of Vercel Environment Variables.")
 
@@ -45,29 +46,48 @@ if not SESSION_SECRET:
 IS_VERCEL = os.name != "nt"
 
 
-# ── Admin-sessie: gesigneerd cookie (geen server-side state nodig) ────────────
+# ── Rolgebaseerde toegangscontrole ────────────────────────────────────────────
 
-def _sign(ts: str) -> str:
-    return hmac.new(SESSION_SECRET.encode(), ts.encode(), hashlib.sha256).hexdigest()[:24]  # 🔒 Fix 3: SESSION_SECRET i.p.v. ADMIN_PASSWORD
-
-def maak_admin_token() -> str:
-    ts  = str(int(time.time()))
-    raw = f"{ts}.{_sign(ts)}"
-    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+def get_user_role(email: str) -> str:
+    """Haal de rol op van een gebruiker uit de database. Standaard: 'participant'."""
+    try:
+        conn = get_conn()
+        cur  = get_cur(conn)
+        cur.execute("SELECT role FROM users WHERE email = %s", (email,))
+        row = cur.fetchone()
+        conn.close()
+        return (row["role"] or "participant") if row else "participant"
+    except Exception:
+        return "participant"
 
 def is_admin(request: Request) -> bool:
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
+    """True als de ingelogde gebruiker beheerder of eigenaar is."""
+    user = get_user(request)
+    if not user:
         return False
+    return get_user_role(user["email"]) in ("manager", "owner")
+
+def is_owner(request: Request) -> bool:
+    """True als de ingelogde gebruiker eigenaar is."""
+    user = get_user(request)
+    if not user:
+        return False
+    return get_user_role(user["email"]) == "owner"
+
+def log_audit(actor_email: str, action: str, target: str = None, ip: str = None):
+    """Schrijf een beheersactie naar de auditlog."""
     try:
-        padded  = token + "=" * (4 - len(token) % 4)
-        decoded = base64.urlsafe_b64decode(padded).decode()
-        ts_str, sig = decoded.rsplit(".", 1)
-        if int(time.time()) - int(ts_str) > SESSION_TTL:
-            return False
-        return hmac.compare_digest(sig, _sign(ts_str))
+        conn = get_conn()
+        cur  = get_cur(conn)
+        cur.execute(
+            "INSERT INTO admin_audit (actor_email, action, target, ip, created_at) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (actor_email, action, target, ip, datetime.now().isoformat())
+        )
+        conn.commit()
+        conn.close()
     except Exception:
-        return False
+        pass
 
 
 # ── Bieder-sessie: gesigneerd cookie (geen server-side state) ─────────────────
@@ -225,9 +245,31 @@ def init_db():
             id         SERIAL  PRIMARY KEY,
             email      TEXT    UNIQUE NOT NULL,
             naam       TEXT    NOT NULL,
-            created_at TEXT    NOT NULL
+            created_at TEXT    NOT NULL,
+            role       TEXT    DEFAULT 'participant'
         )
     """)
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'participant'")
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS admin_audit (
+            id          SERIAL  PRIMARY KEY,
+            actor_email TEXT    NOT NULL,
+            action      TEXT    NOT NULL,
+            target      TEXT,
+            ip          TEXT,
+            created_at  TEXT    NOT NULL
+        )
+    """)
+
+    # Zaai vaste eigenaren — update alleen de rol als ze al bestaan
+    for seed_email, seed_naam in [("rm@tosch.nl", "Ronny Morren"), ("dm@tosch.nl", "Eigenaar")]:
+        cur.execute("""
+            INSERT INTO users (email, naam, created_at, role)
+            VALUES (%s, %s, %s, 'owner')
+            ON CONFLICT (email) DO UPDATE SET role = 'owner'
+        """, (seed_email, seed_naam, datetime.now().isoformat()))
+
     conn.commit()
     conn.close()
 
@@ -279,9 +321,24 @@ def valideer_next(next_url: str, standaard: str = "/") -> str:
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    if get_user(request):
+    user = get_user(request)
+    if user:
+        role = get_user_role(user["email"])
+        if role in ("owner", "manager"):
+            return RedirectResponse(url="/keuze", status_code=303)
         return RedirectResponse(url="/veilingen", status_code=303)
     return templates.TemplateResponse(request, "home.html")
+
+
+@app.get("/keuze", response_class=HTMLResponse)
+async def keuze_page(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse(url="/", status_code=303)
+    role = get_user_role(user["email"])
+    if role not in ("owner", "manager"):
+        return RedirectResponse(url="/veilingen", status_code=303)
+    return templates.TemplateResponse(request, "keuze.html", {"user": user, "role": role})
 
 
 @app.get("/veilingen", response_class=HTMLResponse)
@@ -319,32 +376,22 @@ async def uitloggen():
 
 # ── Admin: login / logout ─────────────────────────────────────────────────────
 
-@app.get("/admin/login", response_class=HTMLResponse)
-async def admin_login_get(request: Request, next: str = "/admin/overzicht"):
-    safe_next = valideer_next(next, "/admin/overzicht")  # 🔒 Fix 7
+@app.get("/admin/login")
+async def admin_login_redirect(request: Request, next: str = "/admin/overzicht"):
+    # Wachtwoord-gebaseerde login vervangen door rol-gebaseerde login via e-mail
+    safe_next = valideer_next(next, "/admin/overzicht")
     if is_admin(request):
         return RedirectResponse(url=safe_next, status_code=303)
-    return templates.TemplateResponse(request, "admin_login.html", {"next": safe_next})
+    return RedirectResponse(url=f"/?next={safe_next}", status_code=303)
 
-@app.post("/admin/login", response_class=HTMLResponse)
-async def admin_login_post(request: Request):
-    form     = await request.form()
-    password = str(form.get("password", ""))
-    next_url = valideer_next(str(form.get("next", "/admin/overzicht")), "/admin/overzicht")  # 🔒 Fix 7
-
-    if not hmac.compare_digest(password, ADMIN_PASSWORD):  # 🔒 Fix 8: timing-safe vergelijking
-        return templates.TemplateResponse(request, "admin_login.html",
-            {"error": "Verkeerd wachtwoord. Probeer opnieuw.", "next": next_url},
-            status_code=401)
-
-    token = maak_admin_token()
-    resp  = RedirectResponse(url=next_url, status_code=303)
-    resp.set_cookie(SESSION_COOKIE, token, httponly=True, max_age=SESSION_TTL, samesite="lax")
-    return resp
+@app.post("/admin/login")
+async def admin_login_post_redirect():
+    return RedirectResponse(url="/", status_code=303)
 
 @app.get("/admin/logout")
 async def admin_logout():
-    resp = RedirectResponse(url="/admin/login", status_code=303)
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.delete_cookie(USER_COOKIE)
     resp.delete_cookie(SESSION_COOKIE)
     return resp
 
@@ -354,13 +401,14 @@ async def admin_logout():
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     if not is_admin(request):
-        return RedirectResponse(url="/admin/login?next=/admin", status_code=303)
-    return templates.TemplateResponse(request, "admin.html")
+        return RedirectResponse(url="/?next=/admin", status_code=303)
+    return templates.TemplateResponse(request, "admin.html",
+        {"is_owner": is_owner(request)})
 
 @app.get("/admin/overzicht", response_class=HTMLResponse)
 async def admin_overzicht(request: Request):
     if not is_admin(request):
-        return RedirectResponse(url="/admin/login?next=/admin/overzicht", status_code=303)
+        return RedirectResponse(url="/?next=/admin/overzicht", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
     cur.execute("""
@@ -382,7 +430,7 @@ async def admin_overzicht(request: Request):
         else:
             actief.append(d)
     return templates.TemplateResponse(request, "admin_overzicht.html",
-        {"auctions": actief, "archief": archief})
+        {"auctions": actief, "archief": archief, "is_owner": is_owner(request)})
 
 @app.get("/veiling/{auction_id}", response_class=HTMLResponse)
 async def auction_page(request: Request, auction_id: int):
@@ -544,6 +592,11 @@ async def create_auction(request: Request):
     auction_id = cur.fetchone()["id"]
     conn.commit()
     conn.close()
+
+    actor = get_user(request)
+    if actor:
+        log_audit(actor["email"], "veiling_aangemaakt", target=data["title"],
+                  ip=get_client_ip(request))
 
     return JSONResponse({"auction_id": auction_id, "access_code": access_code})
 
@@ -766,8 +819,11 @@ async def verify_login_code(request: Request):
     conn.commit()
     conn.close()
 
+    role = get_user_role(email)
+    log_audit(email, "login", ip=get_client_ip(request))
+
     token = maak_user_token(naam, email)
-    resp  = JSONResponse({"ok": True})
+    resp  = JSONResponse({"ok": True, "role": role})
     resp.set_cookie(USER_COOKIE, token, httponly=True, max_age=USER_TTL, samesite="lax")
     return resp
 
@@ -865,11 +921,17 @@ async def delete_auction(auction_id: int, request: Request):
         raise HTTPException(status_code=403, detail="Geen toegang")
     conn = get_conn()
     cur  = get_cur(conn)
+    cur.execute("SELECT title FROM auctions WHERE id = %s", (auction_id,))
+    auction_row = cur.fetchone()
     cur.execute("DELETE FROM bids WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM email_verifications WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM auctions WHERE id = %s", (auction_id,))
     conn.commit()
     conn.close()
+    actor = get_user(request)
+    if actor and auction_row:
+        log_audit(actor["email"], "veiling_verwijderd", target=auction_row["title"],
+                  ip=get_client_ip(request))
     return JSONResponse({"ok": True})
 
 
@@ -902,7 +964,7 @@ async def unarchive_auction(auction_id: int, request: Request):
 async def admin_biedingen(request: Request, auction_id: int):
     if not is_admin(request):
         return RedirectResponse(
-            url=f"/admin/login?next=/admin/veiling/{auction_id}/biedingen", status_code=303
+            url=f"/?next=/admin/veiling/{auction_id}/biedingen", status_code=303
         )
     conn = get_conn()
     cur  = get_cur(conn)
@@ -917,6 +979,92 @@ async def admin_biedingen(request: Request, auction_id: int):
     bids = cur.fetchall()
     conn.close()
     return templates.TemplateResponse(request, "admin_biedingen.html", {
-        "auction": dict(auction),
-        "bids":    [dict(b) for b in bids],
+        "auction":  dict(auction),
+        "bids":     [dict(b) for b in bids],
+        "is_owner": is_owner(request),
     })
+
+
+# ── Admin: gebruikersbeheer (eigenaren only) ─────────────────────────────────
+
+@app.get("/admin/gebruikers", response_class=HTMLResponse)
+async def admin_gebruikers(request: Request):
+    if not is_owner(request):
+        return RedirectResponse(url="/?next=/admin/gebruikers", status_code=303)
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("SELECT email, naam, created_at FROM users WHERE role = 'manager' ORDER BY created_at DESC")
+    managers = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return templates.TemplateResponse(request, "admin_gebruikers.html",
+        {"managers": managers, "is_owner": True})
+
+
+@app.post("/api/admin/gebruikers")
+async def voeg_manager_toe(request: Request):
+    if not is_owner(request):
+        raise HTTPException(status_code=403, detail="Geen toegang")
+    data  = await request.json()
+    email = data.get("email", "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Ongeldig e-mailadres")
+    if email in EIGENAREN:
+        raise HTTPException(status_code=400, detail="Dit e-mailadres is een eigenaar en kan niet als beheerder worden toegevoegd")
+
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("SELECT role FROM users WHERE email = %s", (email,))
+    row = cur.fetchone()
+    if row:
+        cur.execute("UPDATE users SET role = 'manager' WHERE email = %s", (email,))
+    else:
+        cur.execute(
+            "INSERT INTO users (email, naam, created_at, role) VALUES (%s, %s, %s, 'manager')",
+            (email, email.split("@")[0], datetime.now().isoformat())
+        )
+    conn.commit()
+    conn.close()
+
+    actor = get_user(request)
+    if actor:
+        log_audit(actor["email"], "manager_toegevoegd", target=email, ip=get_client_ip(request))
+
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/admin/gebruikers/{manager_email:path}")
+async def verwijder_manager(manager_email: str, request: Request):
+    if not is_owner(request):
+        raise HTTPException(status_code=403, detail="Geen toegang")
+    if manager_email in EIGENAREN:
+        raise HTTPException(status_code=400, detail="Eigenaren kunnen niet worden verwijderd")
+
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("UPDATE users SET role = 'participant' WHERE email = %s AND role = 'manager'", (manager_email,))
+    if cur.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Beheerder niet gevonden")
+    conn.commit()
+    conn.close()
+
+    actor = get_user(request)
+    if actor:
+        log_audit(actor["email"], "manager_verwijderd", target=manager_email, ip=get_client_ip(request))
+
+    return JSONResponse({"ok": True})
+
+
+# ── Admin: auditlog (eigenaren only) ─────────────────────────────────────────
+
+@app.get("/admin/audit", response_class=HTMLResponse)
+async def admin_audit(request: Request):
+    if not is_owner(request):
+        return RedirectResponse(url="/?next=/admin/audit", status_code=303)
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("SELECT * FROM admin_audit ORDER BY created_at DESC LIMIT 500")
+    logs = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return templates.TemplateResponse(request, "admin_audit.html",
+        {"logs": logs, "is_owner": True})

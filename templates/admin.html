@@ -10,7 +10,11 @@
 <body class="admin-body">
   <nav class="navbar">
     <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
-    <a href="/admin/overzicht" class="btn btn-ghost btn-sm">Overzicht veilingen</a>
+    <div style="display:flex;gap:.75rem;align-items:center">
+      <a href="/admin/overzicht" class="btn btn-ghost btn-sm">Overzicht veilingen</a>
+      {% if is_owner %}<a href="/admin/gebruikers" class="btn btn-ghost btn-sm">Gebruikers</a>{% endif %}
+      <a href="/admin/logout" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
+    </div>
   </nav>
 
   <div class="container">

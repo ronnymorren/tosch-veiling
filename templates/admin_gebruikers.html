@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gebruikersbeheer – Tosch</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body class="admin-body">
+  <nav class="navbar">
+    <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
+    <div style="display:flex;gap:.75rem;align-items:center">
+      <a href="/admin/overzicht" class="btn btn-ghost btn-sm">← Overzicht</a>
+      <a href="/admin/audit" class="btn btn-ghost btn-sm">Auditlog</a>
+      <a href="/admin/logout" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <h1>Gebruikersbeheer</h1>
+      <p>Beheerders kunnen veilingen aanmaken en biedingen beheren</p>
+    </div>
+
+    <!-- Beheerder toevoegen -->
+    <div class="card">
+      <h2 class="card-title">Beheerder toevoegen</h2>
+      <div style="display:flex;gap:.75rem">
+        <input id="nieuwEmail" type="email" placeholder="naam@bedrijf.nl" style="flex:1">
+        <button class="btn btn-primary" onclick="voegToe()">Toevoegen</button>
+      </div>
+      <div id="toevoegMsg" class="alert" style="display:none;margin-top:.75rem"></div>
+    </div>
+
+    <!-- Huidige beheerders -->
+    <div class="card">
+      <h2 class="card-title">Huidige beheerders</h2>
+      {% if managers %}
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1.5px solid var(--gray-200)">
+            <th style="text-align:left;padding:.5rem .75rem;font-size:.75rem;font-weight:700;color:var(--gray-400);letter-spacing:.05em;text-transform:uppercase">Naam</th>
+            <th style="text-align:left;padding:.5rem .75rem;font-size:.75rem;font-weight:700;color:var(--gray-400);letter-spacing:.05em;text-transform:uppercase">E-mailadres</th>
+            <th style="text-align:left;padding:.5rem .75rem;font-size:.75rem;font-weight:700;color:var(--gray-400);letter-spacing:.05em;text-transform:uppercase">Toegevoegd op</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in managers %}
+          <tr style="border-bottom:1px solid var(--gray-100)" id="rij-{{ loop.index }}">
+            <td style="padding:.75rem">{{ m.naam }}</td>
+            <td style="padding:.75rem;color:var(--gray-500)">{{ m.email }}</td>
+            <td style="padding:.75rem;color:var(--gray-500);font-size:.875rem">{{ m.created_at[:10] }}</td>
+            <td style="padding:.75rem;text-align:right">
+              <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                onclick="verwijder('{{ m.email | e }}', {{ loop.index }})">
+                Verwijderen
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color:var(--gray-400);text-align:center;padding:1.5rem 0">Nog geen beheerders toegevoegd.</p>
+      {% endif %}
+    </div>
+
+    <!-- Eigenaren (ter info, niet bewerkbaar) -->
+    <div class="card">
+      <h2 class="card-title">Eigenaren</h2>
+      <p style="color:var(--gray-500);font-size:.9rem;margin-bottom:1rem">Eigenaren zijn vast en kunnen niet via de interface worden gewijzigd.</p>
+      <div style="display:flex;flex-direction:column;gap:.5rem">
+        <div style="padding:.6rem .75rem;background:var(--orange-l);border-radius:9px;font-size:.9rem;font-weight:600">rm@tosch.nl</div>
+        <div style="padding:.6rem .75rem;background:var(--orange-l);border-radius:9px;font-size:.9rem;font-weight:600">dm@tosch.nl</div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">v1.5</footer>
+
+  <script>
+    async function voegToe() {
+      const email = document.getElementById('nieuwEmail').value.trim().toLowerCase();
+      const msg   = document.getElementById('toevoegMsg');
+      msg.style.display = 'none';
+
+      if (!email || !email.includes('@')) {
+        return toonMsg('Vul een geldig e-mailadres in', 'error');
+      }
+
+      const res = await fetch('/api/admin/gebruikers', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+
+      if (!res.ok) return toonMsg(data.detail || 'Toevoegen mislukt', 'error');
+      toonMsg('Beheerder toegevoegd. Pagina wordt herladen...', 'success');
+      setTimeout(() => location.reload(), 1200);
+    }
+
+    async function verwijder(email, idx) {
+      if (!confirm(`Beheerder "${email}" verwijderen?`)) return;
+      const res = await fetch(`/api/admin/gebruikers/${encodeURIComponent(email)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const rij = document.getElementById(`rij-${idx}`);
+        if (rij) rij.remove();
+      } else {
+        const data = await res.json();
+        alert(data.detail || 'Verwijderen mislukt');
+      }
+    }
+
+    function toonMsg(tekst, type) {
+      const el = document.getElementById('toevoegMsg');
+      el.textContent = tekst;
+      el.className = `alert alert-${type}`;
+      el.style.display = 'block';
+    }
+
+    document.getElementById('nieuwEmail').addEventListener('keydown', e => {
+      if (e.key === 'Enter') voegToe();
+    });
+  </script>
+</body>
+</html>
