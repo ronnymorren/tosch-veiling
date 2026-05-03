@@ -32,9 +32,9 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")      # niet meer vereist, behou
 SESSION_SECRET = os.getenv("SESSION_SECRET")
 DATABASE_URL   = os.getenv("DATABASE_URL", "")
 SESSION_COOKIE = "tosch_admin"
-SESSION_TTL    = 8 * 3600
+SESSION_TTL    = 40 * 3600
 USER_COOKIE    = "tosch_user"
-USER_TTL       = 8 * 3600
+USER_TTL       = 40 * 3600
 
 # Vaste eigenaren — worden bij opstart in de database gezaaid
 EIGENAREN = ["rm@tosch.nl", "dm@tosch.nl"]
