@@ -16,7 +16,7 @@ AMS = ZoneInfo("Europe/Amsterdam")
 
 def nu() -> datetime:
     """Huidige tijd in Amsterdam-tijdzone (naïef ISO-formaat voor DB-opslag)."""
-    return nu()
+    return datetime.now(AMS).replace(tzinfo=None)
 
 from pathlib import Path
 
