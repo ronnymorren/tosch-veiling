@@ -10,6 +10,9 @@ import time
 import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+AMS = ZoneInfo("Europe/Amsterdam")
 from pathlib import Path
 
 import psycopg2
@@ -339,7 +342,7 @@ async def veilingen_page(request: Request):
     cur.execute("SELECT * FROM auctions WHERE archived = 0 ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
-    now = datetime.now().isoformat()
+    now = datetime.now(AMS).strftime("%Y-%m-%dT%H:%M:%S")
     auctions = []
     for r in rows:
         d = dict(r)
@@ -362,6 +365,29 @@ async def veilingen_page(request: Request):
 async def uitloggen():
     resp = RedirectResponse(url="/", status_code=303)
     resp.delete_cookie(USER_COOKIE)
+    return resp
+
+
+@app.post("/api/profiel/naam")
+async def update_naam(request: Request):
+    user = get_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Niet ingelogd")
+    data = await request.json()
+    naam = data.get("naam", "").strip()
+    if not naam:
+        raise HTTPException(status_code=400, detail="Naam mag niet leeg zijn")
+    if len(naam) > 80:
+        raise HTTPException(status_code=400, detail="Naam is te lang")
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("UPDATE users SET naam = %s WHERE email = %s", (naam, user["email"]))
+    conn.commit()
+    conn.close()
+    # Geef nieuw cookie terug met bijgewerkte naam
+    token = maak_user_token(naam, user["email"])
+    resp  = JSONResponse({"ok": True})
+    resp.set_cookie(USER_COOKIE, token, max_age=USER_TTL, httponly=True, samesite="lax")
     return resp
 
 
@@ -418,7 +444,7 @@ async def admin_overzicht(request: Request):
     """)
     rows = cur.fetchall()
     conn.close()
-    now = datetime.now().isoformat()
+    now = datetime.now(AMS).strftime("%Y-%m-%dT%H:%M:%S")
     actief, archief = [], []
     for r in rows:
         d = dict(r)
@@ -645,7 +671,7 @@ async def get_auction(auction_id: int):
     bids = cur.fetchall()
 
     end_time  = datetime.fromisoformat(row["end_time"])
-    is_ended  = datetime.now() > end_time or row["status"] == "ended"
+    is_ended  = datetime.now(AMS).replace(tzinfo=None) > end_time or row["status"] == "ended"
     req_email = bool(row["require_email_verification"])
 
     winner = None
@@ -858,7 +884,7 @@ async def place_bid(request: Request):
             raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
 
     end_time = datetime.fromisoformat(row["end_time"])
-    if datetime.now() > end_time:
+    if datetime.now(AMS).replace(tzinfo=None) > end_time:
         conn.close()
         raise HTTPException(status_code=400, detail="De veiling is al afgelopen")
 
