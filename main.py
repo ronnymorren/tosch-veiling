@@ -612,7 +612,7 @@ async def create_auction(request: Request):
         json.dumps(data.get("specs", [])),
         float(data["start_price"]),
         float(data["start_price"]),
-        float(data.get("min_increment", 1.0)),
+        float(data.get("min_increment", 5.0)),
         data["end_time"],
         access_code,
         1 if data.get("require_email_verification") else 0,
