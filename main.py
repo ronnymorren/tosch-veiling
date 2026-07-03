@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -394,6 +395,38 @@ async def update_naam(request: Request):
     resp  = JSONResponse({"ok": True})
     resp.set_cookie(USER_COOKIE, token, max_age=USER_TTL, httponly=True, samesite="lax")
     return resp
+
+
+@app.post("/api/feedback")
+async def api_feedback(request: Request):
+    """Verstuurt feedback van ingelogde gebruikers rechtstreeks naar rm@tosch.nl."""
+    user = get_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Niet ingelogd")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Ongeldige aanvraag")
+    bericht = (data.get("bericht") or "").strip()[:2000]
+    if not bericht:
+        raise HTTPException(status_code=400, detail="Bericht is verplicht")
+    afzender  = f"{user['naam']} <{user['email']}>"
+    html_body = (
+        f"<p><b>Van:</b> {html.escape(afzender)}</p>"
+        "<p><b>Bericht:</b></p>"
+        "<blockquote style='border-left:3px solid #ccc;padding-left:12px'>"
+        f"{html.escape(bericht).replace(chr(10), '<br>')}"
+        "</blockquote>"
+        "<p style='color:#888;font-size:12px'>Verstuurd via Tosch Veiling</p>"
+    )
+    text_body = f"Van: {afzender}\n\n{bericht}\n\nVerstuurd via Tosch Veiling"
+    # Synchroon versturen: op Vercel serverless overleeft een achtergrond-thread
+    # de response niet, dus de mail moet vóór het antwoord de deur uit zijn.
+    try:
+        stuur_email("rm@tosch.nl", f"Veiling feedback van {user['naam']}", html_body, text_body)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Versturen mislukt, probeer het later opnieuw")
+    return JSONResponse({"ok": True})
 
 
 # ── Admin: login / logout ─────────────────────────────────────────────────────
