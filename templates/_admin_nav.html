@@ -15,7 +15,6 @@
     font-size: .875rem; color: var(--gray-700); text-decoration: none;
   }
   .gear-menu a:hover { background: var(--gray-50); }
-  .gear-sep { border-top: 1px solid var(--gray-100); margin: .35rem 0; }
 </style>
 <nav class="navbar">
   <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
@@ -23,19 +22,18 @@
     <a href="/veilingen" class="btn btn-ghost btn-sm">Veilingen</a>
     <a href="/admin/overzicht" class="btn btn-ghost btn-sm {{ 'nav-actief' if nav_active == 'overzicht' }}">Beheersoverzicht</a>
     <a href="/admin" class="btn btn-primary btn-sm">+ Nieuwe veiling</a>
+    {% if is_owner %}
     <div class="gear-wrap">
       <button class="btn btn-ghost btn-sm" onclick="gearToggle(event)" title="Instellingen" aria-label="Instellingen">⚙️</button>
       <div id="gear-menu" class="gear-menu">
-        {% if is_owner %}
         <a href="/admin/gebruikers">👥 Gebruikers</a>
         <a href="/admin/audit">📜 Auditlog</a>
-        <div class="gear-sep"></div>
-        {% endif %}
-        <a href="/admin/logout" style="color:var(--gray-400)">Uitloggen</a>
       </div>
     </div>
+    {% endif %}
   </div>
 </nav>
+{% if is_owner %}
 <script>
   function gearToggle(e) {
     e.stopPropagation();
@@ -45,3 +43,4 @@
     document.getElementById('gear-menu').classList.remove('open');
   });
 </script>
+{% endif %}
