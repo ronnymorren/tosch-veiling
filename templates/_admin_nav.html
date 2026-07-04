@@ -1,8 +1,9 @@
 {# Gedeelde admin-navbar — include op alle admin-pagina's.
-   Alle navigatie zit in het ⚙️-menu (_gear_menu.html); partial verwacht is_owner in de context. #}
+   Identiek aan de navbar op /veilingen: 👋 naam + ⚙️. Verwacht `user` en `is_owner` in de context. #}
 <nav class="navbar">
   <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
-  <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+  <div style="display:flex;gap:.75rem;align-items:center">
+    {% include "_naam_widget.html" %}
     {% include "_gear_menu.html" %}
   </div>
 </nav>

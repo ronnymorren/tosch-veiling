@@ -103,10 +103,9 @@
     <a href="/veilingen" class="nav-brand">
       <img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo">
     </a>
-    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
-      <span style="color:var(--gray-500);font-size:.875rem">👋 {{ user.naam }}</span>
-      <a href="/veilingen" class="btn btn-ghost btn-sm">← Alle veilingen</a>
-      <a href="/uitloggen" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
+    <div style="display:flex;align-items:center;gap:.75rem">
+      {% include "_naam_widget.html" %}
+      {% include "_gear_menu.html" %}
     </div>
   </nav>
 
@@ -233,7 +232,7 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.6.5 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.6.6 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>

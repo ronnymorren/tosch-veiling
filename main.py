@@ -492,10 +492,12 @@ async def feedback_page(request: Request):
     for it in items:
         it["zelf_gestemd"] = bool(it["zelf_gestemd"])
         it["datum"] = (it["created_at"] or "")[:10]
+    role = get_user_role(user["email"])
     return templates.TemplateResponse(request, "feedback.html", {
         "items": items,
         "user": user,
-        "is_owner": is_owner(request),
+        "is_admin": role in ("manager", "owner"),
+        "is_owner": role == "owner",
     })
 
 
@@ -614,7 +616,7 @@ async def admin_page(request: Request):
     role = get_user_role(user["email"])
     if role not in ("manager", "owner"):
         return RedirectResponse(url="/?next=/admin", status_code=303)
-    return templates.TemplateResponse(request, "admin.html", {"is_owner": role == "owner"})
+    return templates.TemplateResponse(request, "admin.html", {"user": user, "is_owner": role == "owner"})
 
 @app.get("/admin/overzicht", response_class=HTMLResponse)
 async def admin_overzicht(request: Request):
@@ -645,7 +647,7 @@ async def admin_overzicht(request: Request):
         else:
             actief.append(d)
     return templates.TemplateResponse(request, "admin_overzicht.html",
-        {"auctions": actief, "archief": archief, "is_owner": role == "owner"})
+        {"auctions": actief, "archief": archief, "user": user, "is_owner": role == "owner"})
 
 @app.get("/veiling/{auction_id}", response_class=HTMLResponse)
 async def auction_page(request: Request, auction_id: int):
@@ -1198,6 +1200,7 @@ async def admin_biedingen(request: Request, auction_id: int):
     return templates.TemplateResponse(request, "admin_biedingen.html", {
         "auction":  dict(auction),
         "bids":     [dict(b) for b in bids],
+        "user":     user,
         "is_owner": role == "owner",
     })
 
@@ -1214,7 +1217,7 @@ async def admin_gebruikers(request: Request):
     managers = [dict(r) for r in cur.fetchall()]
     conn.close()
     return templates.TemplateResponse(request, "admin_gebruikers.html",
-        {"managers": managers, "is_owner": True})
+        {"managers": managers, "user": get_user(request), "is_owner": True})
 
 
 @app.post("/api/admin/gebruikers")
@@ -1287,4 +1290,4 @@ async def admin_audit(request: Request):
     logs = [dict(r) for r in cur.fetchall()]
     conn.close()
     return templates.TemplateResponse(request, "admin_audit.html",
-        {"logs": logs, "is_owner": True})
+        {"logs": logs, "user": get_user(request), "is_owner": True})
