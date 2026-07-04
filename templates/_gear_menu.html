@@ -17,11 +17,16 @@
   }
   .gear-menu a:hover { background: var(--gray-50); }
   .gear-sep { border-top: 1px solid var(--gray-100); margin: .35rem 0; }
-  .gear-naam {
+  .gear-footer {
+    display: flex; align-items: center; gap: .5rem;
     padding: .5rem .75rem; border-radius: 7px; font-size: .875rem;
-    color: var(--gray-500); cursor: pointer; white-space: nowrap;
   }
-  .gear-naam:hover { background: var(--gray-50); }
+  .gear-naam {
+    flex: 1; color: var(--gray-500); cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .gear-naam:hover { color: var(--orange-d); }
+  .gear-uit { padding: 0 !important; font-size: 1rem; line-height: 1; flex-shrink: 0; }
   .gear-naam-edit { padding: .35rem .5rem; display: none; gap: .35rem; align-items: center; }
   .gear-naam-edit input {
     width: 120px; flex: 1; padding: .3rem .5rem; font-size: .8125rem;
@@ -44,16 +49,20 @@
     {% endif %}
     <div class="gear-sep"></div>
     {% if user %}
-    <div id="naam-display" class="gear-naam" title="Klik om naam te wijzigen"
-         onclick="naamBewerken(event)">👋 <span id="naam-tekst">{{ user.naam }}</span> ✏️</div>
+    <div id="naam-display" class="gear-footer">
+      <span class="gear-naam" title="Klik om naam te wijzigen"
+            onclick="naamBewerken(event)">👋 <span id="naam-tekst">{{ user.naam }}</span> ✏️</span>
+      <a href="/uitloggen" class="gear-uit" title="Uitloggen">🚪</a>
+    </div>
     <div id="naam-edit" class="gear-naam-edit">
       <input id="naam-input" type="text" value="{{ user.naam }}" maxlength="80"
              onkeydown="if(event.key==='Enter')naamOpslaan();if(event.key==='Escape')naamAnnuleren()">
-      <button class="btn btn-primary btn-sm" onclick="naamOpslaan()">✔</button>
-      <button class="btn btn-ghost btn-sm" onclick="naamAnnuleren()">✕</button>
+      <button class="btn btn-primary btn-sm" onclick="naamOpslaan()" title="Opslaan">✔</button>
+      <button class="btn btn-ghost btn-sm" onclick="naamAnnuleren()" title="Annuleren">✕</button>
     </div>
-    {% endif %}
+    {% else %}
     <a href="/uitloggen" style="color:var(--gray-400)">🚪 Uitloggen</a>
+    {% endif %}
   </div>
 </div>
 <script>
