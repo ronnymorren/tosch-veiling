@@ -10,7 +10,7 @@
 <body class="admin-body">
   {% include "_admin_nav.html" %}
 
-  <div class="container">
+  <div class="container" style="max-width:1400px">
 
     <!-- Header -->
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:1rem">
@@ -216,7 +216,7 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.6.10 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.6.11 · Samen werken aan overmorgen</span>
   </footer>
 
   <script>
@@ -234,6 +234,7 @@
       const open = sectie.style.display === 'none';
       sectie.style.display = open ? 'block' : 'none';
       btn.textContent = open ? '📦 Verberg archief' : btn.dataset.orig;
+      if (open) sectie.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     async function archiveer(id, btn) {
