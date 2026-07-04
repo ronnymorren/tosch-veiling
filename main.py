@@ -271,6 +271,29 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            id           SERIAL PRIMARY KEY,
+            email        TEXT   NOT NULL,
+            naam         TEXT   NOT NULL,
+            bericht      TEXT   NOT NULL,
+            created_at   TEXT   NOT NULL,
+            status       TEXT   DEFAULT 'open',
+            status_reden TEXT,
+            status_door  TEXT,
+            status_at    TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS feedback_votes (
+            id          SERIAL  PRIMARY KEY,
+            feedback_id INTEGER NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+            email       TEXT    NOT NULL,
+            created_at  TEXT    NOT NULL,
+            UNIQUE (feedback_id, email)
+        )
+    """)
+
     # Zaai vaste eigenaren — update alleen de rol als ze al bestaan
     for seed_email, seed_naam in [("rm@tosch.nl", "Ronny Morren"), ("dm@tosch.nl", "Eigenaar")]:
         cur.execute("""
@@ -397,9 +420,11 @@ async def update_naam(request: Request):
     return resp
 
 
+FEEDBACK_STATUSSEN = ("open", "gepland", "doorgevoerd", "afgewezen")
+
 @app.post("/api/feedback")
 async def api_feedback(request: Request):
-    """Verstuurt feedback van ingelogde gebruikers rechtstreeks naar rm@tosch.nl."""
+    """Slaat feedback op voor het feedback-bord en mailt rm@tosch.nl."""
     user = get_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Niet ingelogd")
@@ -410,22 +435,149 @@ async def api_feedback(request: Request):
     bericht = (data.get("bericht") or "").strip()[:2000]
     if not bericht:
         raise HTTPException(status_code=400, detail="Bericht is verplicht")
+
+    # Eerst opslaan — de mail mag falen zonder dat de feedback verloren gaat
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute(
+        "INSERT INTO feedback (email, naam, bericht, created_at) "
+        "VALUES (%s, %s, %s, %s) RETURNING id",
+        (user["email"], user["naam"], bericht, nu().isoformat())
+    )
+    feedback_id = cur.fetchone()["id"]
+    conn.commit()
+    conn.close()
+
     afzender  = f"{user['naam']} <{user['email']}>"
+    bord_link = f"https://veiling.tosch.nl/feedback#fb-{feedback_id}"
     html_body = (
         f"<p><b>Van:</b> {html.escape(afzender)}</p>"
         "<p><b>Bericht:</b></p>"
         "<blockquote style='border-left:3px solid #ccc;padding-left:12px'>"
         f"{html.escape(bericht).replace(chr(10), '<br>')}"
         "</blockquote>"
+        f"<p><a href='{bord_link}'>Bekijk op het feedback-bord</a></p>"
         "<p style='color:#888;font-size:12px'>Verstuurd via Tosch Veiling</p>"
     )
-    text_body = f"Van: {afzender}\n\n{bericht}\n\nVerstuurd via Tosch Veiling"
+    text_body = f"Van: {afzender}\n\n{bericht}\n\nFeedback-bord: {bord_link}\n\nVerstuurd via Tosch Veiling"
     # Synchroon versturen: op Vercel serverless overleeft een achtergrond-thread
     # de response niet, dus de mail moet vóór het antwoord de deur uit zijn.
     try:
         stuur_email("rm@tosch.nl", f"Veiling feedback van {user['naam']}", html_body, text_body)
     except Exception:
-        raise HTTPException(status_code=502, detail="Versturen mislukt, probeer het later opnieuw")
+        pass  # feedback staat al op het bord
+    return JSONResponse({"ok": True, "id": feedback_id})
+
+
+@app.get("/feedback", response_class=HTMLResponse)
+async def feedback_page(request: Request):
+    """Feedback-bord: alle feedback, stemmen en (voor de eigenaar) status beheren."""
+    user = get_user(request)
+    if not user:
+        return RedirectResponse(url="/", status_code=303)
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("""
+        SELECT f.*,
+               COUNT(v.id)                                          AS stemmen,
+               BOOL_OR(v.email = %s)                                AS zelf_gestemd
+        FROM feedback f
+        LEFT JOIN feedback_votes v ON v.feedback_id = f.id
+        GROUP BY f.id
+        ORDER BY (f.status = 'open') DESC, COUNT(v.id) DESC, f.id DESC
+    """, (user["email"],))
+    items = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    for it in items:
+        it["zelf_gestemd"] = bool(it["zelf_gestemd"])
+        it["datum"] = (it["created_at"] or "")[:10]
+    return templates.TemplateResponse(request, "feedback.html", {
+        "items": items,
+        "user": user,
+        "is_owner": is_owner(request),
+    })
+
+
+@app.post("/api/feedback/{feedback_id}/stem")
+async def api_feedback_stem(feedback_id: int, request: Request):
+    """Duimpje aan/uit op een feedback-item (toggle, 1 stem per persoon)."""
+    user = get_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Niet ingelogd")
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("SELECT id FROM feedback WHERE id = %s", (feedback_id,))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Feedback niet gevonden")
+    cur.execute(
+        "DELETE FROM feedback_votes WHERE feedback_id = %s AND email = %s",
+        (feedback_id, user["email"])
+    )
+    gestemd = False
+    if cur.rowcount == 0:
+        cur.execute(
+            "INSERT INTO feedback_votes (feedback_id, email, created_at) VALUES (%s, %s, %s) "
+            "ON CONFLICT (feedback_id, email) DO NOTHING",
+            (feedback_id, user["email"], nu().isoformat())
+        )
+        gestemd = True
+    cur.execute("SELECT COUNT(*) AS n FROM feedback_votes WHERE feedback_id = %s", (feedback_id,))
+    stemmen = cur.fetchone()["n"]
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True, "gestemd": gestemd, "stemmen": stemmen})
+
+
+@app.post("/api/feedback/{feedback_id}/status")
+async def api_feedback_status(feedback_id: int, request: Request):
+    """Eigenaar zet status (open/gepland/doorgevoerd/afgewezen) + reden."""
+    user = get_user(request)
+    if not user or not is_owner(request):
+        raise HTTPException(status_code=403, detail="Alleen voor de eigenaar")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Ongeldige aanvraag")
+    status = (data.get("status") or "").strip()
+    reden  = (data.get("reden") or "").strip()[:1000]
+    if status not in FEEDBACK_STATUSSEN:
+        raise HTTPException(status_code=400, detail="Ongeldige status")
+    if status == "afgewezen" and not reden:
+        raise HTTPException(status_code=400, detail="Geef een reden bij afwijzen")
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute(
+        "UPDATE feedback SET status = %s, status_reden = %s, status_door = %s, status_at = %s "
+        "WHERE id = %s",
+        (status, reden or None, user["naam"], nu().isoformat(), feedback_id)
+    )
+    gevonden = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    if not gevonden:
+        raise HTTPException(status_code=404, detail="Feedback niet gevonden")
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None
+    log_audit(user["email"], "feedback_status", f"#{feedback_id} → {status}", ip)
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/feedback/{feedback_id}")
+async def api_feedback_delete(feedback_id: int, request: Request):
+    """Eigenaar verwijdert een feedback-item (spam/dubbelingen)."""
+    user = get_user(request)
+    if not user or not is_owner(request):
+        raise HTTPException(status_code=403, detail="Alleen voor de eigenaar")
+    conn = get_conn()
+    cur  = get_cur(conn)
+    cur.execute("DELETE FROM feedback WHERE id = %s", (feedback_id,))
+    gevonden = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    if not gevonden:
+        raise HTTPException(status_code=404, detail="Feedback niet gevonden")
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None
+    log_audit(user["email"], "feedback_verwijderd", f"#{feedback_id}", ip)
     return JSONResponse({"ok": True})
 
 

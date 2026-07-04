@@ -111,7 +111,7 @@
         <!-- 🔒 Fix 10: beheerderswachtwoord niet meer nodig — sessie-cookie wordt gebruikt -->
       </div>
       <div id="aanmaakError" class="alert alert-error" style="display:none"></div>
-      <button class="btn btn-primary btn-full" onclick="maakVeiling()">Veiling aanmaken</button>
+      <button class="btn btn-primary btn-full" id="maakVeilingBtn" onclick="maakVeiling()">Veiling aanmaken</button>
     </div>
 
     <!-- ── Resultaat ────────────────────────────────────────────────────── -->
@@ -428,7 +428,9 @@
     }
 
     // ── Veiling aanmaken ──────────────────────────────────────────────────
+    let bezigMetAanmaken = false;   // 🔒 voorkomt dubbele veiling bij dubbelklik
     async function maakVeiling() {
+      if (bezigMetAanmaken) return;
       const titel       = document.getElementById('editTitel').value.trim();
       const beschr      = document.getElementById('editBeschrijving').value.trim();
       // Gebruik productData.image_url direct: externe URLs bewaren volledig,
@@ -447,6 +449,10 @@
       if (isNaN(startPrijs) || startPrijs < 0) return showErr('Vul een geldige startprijs in');
       if (isNaN(minVer)     || minVer <= 0)    return showErr('Vul een geldige minimale verhoging in');
       if (!datum || !tijd)              return showErr('Vul een einddatum en -tijd in');
+
+      const knop = document.getElementById('maakVeilingBtn');
+      bezigMetAanmaken = true;
+      if (knop) { knop.disabled = true; knop.textContent = 'Bezig met aanmaken…'; }
 
       try {
         const domeinen = document.getElementById('toegestaaneDomeinen').value.trim();
@@ -485,6 +491,9 @@
         window.scrollTo({top: 0, behavior: 'smooth'});
       } catch {
         showErr('Er is een fout opgetreden. Probeer opnieuw.');
+      } finally {
+        bezigMetAanmaken = false;
+        if (knop) { knop.disabled = false; knop.textContent = 'Veiling aanmaken'; }
       }
     }
 

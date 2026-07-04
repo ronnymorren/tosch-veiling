@@ -93,11 +93,10 @@
       <img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo">
     </a>
     <div style="display:flex;align-items:center;gap:.5rem">
-      <button class="btn btn-ghost btn-sm" onclick="fbOpen()" title="Feedback sturen">💬 Feedback</button>
+      <a href="/feedback" class="btn btn-ghost btn-sm" title="Feedback-bord bekijken en delen">💬 Feedback</a>
       <a href="/veilingen" class="btn btn-ghost btn-sm">← Alle veilingen</a>
     </div>
   </nav>
-  {% include "_feedback.html" %}
 
   <!-- Overboden banner (klik om te sluiten) -->
   <div id="overbodenBanner" style="display:none" onclick="sluitOverbodenBanner()"></div>
@@ -148,7 +147,7 @@
           <!-- Header -->
           <div class="panel-topbar">
             <span class="panel-tag">Live biedpaneel</span>
-            <span class="panel-ver">v1.5.3</span>
+            <span class="panel-ver">v1.6.0</span>
           </div>
           <div class="panel-realtime">Realtime</div>
 
@@ -653,7 +652,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.5.3 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.6.0 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>

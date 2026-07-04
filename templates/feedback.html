@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedback – Tosch Veiling</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <style>
+    .fb-wrap { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem; }
+    .fb-header h1 { font-size: 1.75rem; font-weight: 800; }
+    .fb-header p  { color: var(--gray-500); margin-top: .3rem; font-size: .9375rem; }
+
+    .fb-uitleg {
+      background: var(--orange-l);
+      border: 1px solid var(--orange-ring);
+      border-radius: var(--radius);
+      padding: .9rem 1.1rem;
+      font-size: .875rem;
+      color: var(--gray-700);
+      margin: 1.25rem 0;
+      line-height: 1.55;
+    }
+
+    .fb-form {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.25rem;
+      margin-bottom: 1.75rem;
+    }
+    .fb-form textarea {
+      width: 100%; box-sizing: border-box;
+      padding: .6rem .75rem;
+      border: 1.5px solid var(--gray-200); border-radius: 9px;
+      font-size: .875rem; font-family: inherit; resize: vertical;
+      margin-bottom: .7rem;
+    }
+    .fb-form textarea:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-ring); }
+    .fb-form-row { display: flex; justify-content: flex-end; align-items: center; gap: .75rem; }
+    .fb-form-status { font-size: .8125rem; margin-right: auto; min-height: 1rem; }
+
+    .fb-card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .fb-card.afgehandeld { opacity: .82; }
+    .fb-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
+    .fb-bericht { font-size: .9375rem; color: var(--gray-900); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .fb-meta { font-size: .8125rem; color: var(--gray-400); margin-top: .55rem; }
+
+    .fb-stem {
+      display: inline-flex; align-items: center; gap: .35rem;
+      border: 1.5px solid var(--gray-200); background: #fff;
+      border-radius: 999px; padding: .3rem .8rem;
+      font-size: .875rem; font-weight: 700; color: var(--gray-700);
+      cursor: pointer; transition: all .15s; flex-shrink: 0;
+      font-family: inherit;
+    }
+    .fb-stem:hover { border-color: var(--orange); }
+    .fb-stem.gestemd {
+      background: var(--orange-l); border-color: var(--orange); color: var(--orange-d);
+    }
+
+    .fb-status-badge {
+      display: inline-block; font-size: .72rem; font-weight: 700;
+      padding: .22rem .65rem; border-radius: 999px; letter-spacing: .03em;
+      margin-bottom: .55rem;
+    }
+    .fbs-open        { background: var(--gray-100); color: var(--gray-500); }
+    .fbs-gepland     { background: var(--blue-bg);  color: var(--orange-d); }
+    .fbs-doorgevoerd { background: var(--green-bg); color: var(--green); }
+    .fbs-afgewezen   { background: var(--red-bg);   color: var(--red); }
+
+    .fb-reactie {
+      margin-top: .7rem; padding: .6rem .8rem;
+      background: var(--gray-50); border-left: 3px solid var(--orange);
+      border-radius: 0 8px 8px 0;
+      font-size: .8438rem; color: var(--gray-700); line-height: 1.5;
+    }
+    .fb-reactie b { color: var(--gray-900); }
+
+    .fb-owner {
+      margin-top: .8rem; padding-top: .8rem; border-top: 1px dashed var(--gray-200);
+      display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
+    }
+    .fb-owner select, .fb-owner input[type=text] {
+      padding: .35rem .6rem; font-size: .8125rem;
+      border: 1.5px solid var(--gray-200); border-radius: 8px; font-family: inherit;
+    }
+    .fb-owner input[type=text] { flex: 1; min-width: 180px; }
+
+    .fb-leeg { text-align: center; padding: 3rem 1rem; color: var(--gray-400); }
+    @media (max-width: 600px) { .fb-card-top { flex-direction: column; } }
+  </style>
+</head>
+<body class="admin-body">
+
+  <nav class="navbar">
+    <a href="/veilingen" class="nav-brand">
+      <img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo">
+    </a>
+    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <span style="color:var(--gray-500);font-size:.875rem">👋 {{ user.naam }}</span>
+      <a href="/veilingen" class="btn btn-ghost btn-sm">← Alle veilingen</a>
+      <a href="/uitloggen" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
+    </div>
+  </nav>
+
+  <div class="fb-wrap">
+    <div class="fb-header">
+      <h1>💬 Feedback</h1>
+      <p>Ideeën en verbeterpunten voor Tosch Veiling</p>
+    </div>
+
+    <div class="fb-uitleg">
+      Alle feedback is zichtbaar voor collega's. Steun een idee met een 👍 — zo wordt duidelijk
+      wat het meest leeft. Ronny reageert per punt of het wordt doorgevoerd, en waarom.
+      Nieuwe feedback komt ook per mail bij hem binnen.
+    </div>
+
+    <div class="fb-form">
+      <textarea id="fb-bericht" rows="3" maxlength="2000"
+                placeholder="Nieuw idee of verbeterpunt? Deel het hier…"></textarea>
+      <div class="fb-form-row">
+        <span id="fb-form-status" class="fb-form-status"></span>
+        <button class="btn btn-primary btn-sm" onclick="fbVersturen()">Versturen</button>
+      </div>
+    </div>
+
+    {% if items %}
+      {% for it in items %}
+      <div class="fb-card {{ 'afgehandeld' if it.status != 'open' }}" id="fb-{{ it.id }}">
+        {% if it.status != 'open' %}
+        <span class="fb-status-badge fbs-{{ it.status }}">
+          {{ {'gepland': '📅 Gepland', 'doorgevoerd': '✔ Doorgevoerd', 'afgewezen': '✕ Niet doorgevoerd'}[it.status] }}
+        </span>
+        {% endif %}
+        <div class="fb-card-top">
+          <div>
+            <div class="fb-bericht">{{ it.bericht }}</div>
+            <div class="fb-meta">{{ it.naam }} · {{ it.datum }}</div>
+          </div>
+          <button class="fb-stem {{ 'gestemd' if it.zelf_gestemd }}" onclick="fbStem({{ it.id }}, this)"
+                  title="{{ 'Stem intrekken' if it.zelf_gestemd else 'Dit idee steunen' }}">
+            👍 <span class="fb-stem-aantal">{{ it.stemmen }}</span>
+          </button>
+        </div>
+        {% if it.status_reden %}
+        <div class="fb-reactie"><b>{{ it.status_door or 'Ronny' }}:</b> {{ it.status_reden }}</div>
+        {% endif %}
+        {% if is_owner %}
+        <div class="fb-owner">
+          <select id="fb-status-{{ it.id }}">
+            {% for s, label in [('open','Open'), ('gepland','Gepland'), ('doorgevoerd','Doorgevoerd'), ('afgewezen','Niet doorvoeren')] %}
+            <option value="{{ s }}" {{ 'selected' if it.status == s }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <input type="text" id="fb-reden-{{ it.id }}" maxlength="1000"
+                 placeholder="Reden / toelichting (verplicht bij niet doorvoeren)"
+                 value="{{ it.status_reden or '' }}">
+          <button class="btn btn-ghost btn-sm" onclick="fbStatus({{ it.id }})">Opslaan</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="fbVerwijderen({{ it.id }})">🗑</button>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="fb-leeg">Nog geen feedback. Wees de eerste! 🎉</div>
+    {% endif %}
+  </div>
+
+  <script>
+    async function fbVersturen() {
+      const el = document.getElementById('fb-bericht');
+      const st = document.getElementById('fb-form-status');
+      const bericht = el.value.trim();
+      if (!bericht) { st.textContent = 'Vul een bericht in.'; st.style.color = 'var(--red)'; return; }
+      st.textContent = 'Versturen…'; st.style.color = 'var(--gray-500)';
+      try {
+        const r = await fetch('/api/feedback', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bericht })
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { st.textContent = d.detail || 'Versturen mislukt.'; st.style.color = 'var(--red)'; return; }
+        location.reload();
+      } catch { st.textContent = 'Versturen mislukt.'; st.style.color = 'var(--red)'; }
+    }
+
+    async function fbStem(id, btn) {
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/feedback/' + id + '/stem', { method: 'POST', credentials: 'same-origin' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+          btn.classList.toggle('gestemd', d.gestemd);
+          btn.querySelector('.fb-stem-aantal').textContent = d.stemmen;
+          btn.title = d.gestemd ? 'Stem intrekken' : 'Dit idee steunen';
+        }
+      } catch {}
+      btn.disabled = false;
+    }
+
+    async function fbStatus(id) {
+      const status = document.getElementById('fb-status-' + id).value;
+      const reden  = document.getElementById('fb-reden-' + id).value.trim();
+      try {
+        const r = await fetch('/api/feedback/' + id + '/status', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, reden })
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(d.detail || 'Opslaan mislukt.'); return; }
+        location.reload();
+      } catch { alert('Opslaan mislukt.'); }
+    }
+
+    async function fbVerwijderen(id) {
+      if (!confirm('Deze feedback definitief verwijderen?')) return;
+      try {
+        const r = await fetch('/api/feedback/' + id, { method: 'DELETE', credentials: 'same-origin' });
+        if (!r.ok) { alert('Verwijderen mislukt.'); return; }
+        location.reload();
+      } catch { alert('Verwijderen mislukt.'); }
+    }
+  </script>
+
+  <footer class="site-footer">
+    <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
+    <span>Tosch Veiling · v1.6.0 · Samen werken aan overmorgen</span>
+  </footer>
+</body>
+</html>
