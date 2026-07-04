@@ -1,0 +1,47 @@
+<!-- Gedeelde admin-navbar — include op alle admin-pagina's.
+     Zet vóór de include optioneel {% set nav_active = 'overzicht'|'nieuw' %} voor de actieve knop. -->
+<style>
+  .nav-actief { border-color: var(--orange) !important; color: var(--orange-d) !important; }
+  .gear-wrap { position: relative; }
+  .gear-menu {
+    position: absolute; right: 0; top: calc(100% + .4rem); z-index: 500;
+    background: #fff; border: 1px solid var(--gray-200); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.12);
+    min-width: 170px; padding: .35rem; display: none;
+  }
+  .gear-menu.open { display: block; }
+  .gear-menu a {
+    display: block; padding: .5rem .75rem; border-radius: 7px;
+    font-size: .875rem; color: var(--gray-700); text-decoration: none;
+  }
+  .gear-menu a:hover { background: var(--gray-50); }
+  .gear-sep { border-top: 1px solid var(--gray-100); margin: .35rem 0; }
+</style>
+<nav class="navbar">
+  <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
+  <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+    <a href="/veilingen" class="btn btn-ghost btn-sm">Veilingen</a>
+    <a href="/admin/overzicht" class="btn btn-ghost btn-sm {{ 'nav-actief' if nav_active == 'overzicht' }}">Beheersoverzicht</a>
+    <a href="/admin" class="btn btn-primary btn-sm">+ Nieuwe veiling</a>
+    <div class="gear-wrap">
+      <button class="btn btn-ghost btn-sm" onclick="gearToggle(event)" title="Instellingen" aria-label="Instellingen">⚙️</button>
+      <div id="gear-menu" class="gear-menu">
+        {% if is_owner %}
+        <a href="/admin/gebruikers">👥 Gebruikers</a>
+        <a href="/admin/audit">📜 Auditlog</a>
+        <div class="gear-sep"></div>
+        {% endif %}
+        <a href="/admin/logout" style="color:var(--gray-400)">Uitloggen</a>
+      </div>
+    </div>
+  </div>
+</nav>
+<script>
+  function gearToggle(e) {
+    e.stopPropagation();
+    document.getElementById('gear-menu').classList.toggle('open');
+  }
+  document.addEventListener('click', function () {
+    document.getElementById('gear-menu').classList.remove('open');
+  });
+</script>

@@ -8,15 +8,8 @@
   <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body class="admin-body">
-  <nav class="navbar">
-    <a href="/" class="nav-brand"><img src="/static/tosch-logo.png" alt="Tosch" class="nav-logo"></a>
-    <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
-      <a href="/veilingen" class="btn btn-ghost btn-sm">Veilingen</a>
-      <a href="/admin/overzicht" class="btn btn-ghost btn-sm">Beheersoverzicht</a>
-      {% if is_owner %}<a href="/admin/gebruikers" class="btn btn-ghost btn-sm">Gebruikers</a>{% endif %}
-      <a href="/admin/logout" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
-    </div>
-  </nav>
+  {% set nav_active = 'nieuw' %}
+  {% include "_admin_nav.html" %}
 
   <div class="container">
     <div class="page-header">
