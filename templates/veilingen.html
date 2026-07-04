@@ -153,11 +153,9 @@
         <button class="btn btn-primary btn-sm" onclick="naamOpslaan()">Opslaan</button>
         <button class="btn btn-ghost btn-sm" onclick="naamAnnuleren()">✕</button>
       </span>
-      {% if is_admin %}
-      <a href="/admin/overzicht" class="btn btn-ghost btn-sm">Beheerdersportaal</a>
-      {% endif %}
       <a href="/feedback" class="btn btn-ghost btn-sm" title="Feedback-bord bekijken en delen">💬 Feedback</a>
       <a href="/uitloggen" class="btn btn-ghost btn-sm" style="color:var(--gray-400)">Uitloggen</a>
+      {% include "_gear_menu.html" %}
     </div>
   </nav>
 
@@ -285,7 +283,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.6.2 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.6.3 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>

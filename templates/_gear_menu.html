@@ -1,0 +1,41 @@
+{# Instellingen-menu (⚙️) — alle beheer-navigatie in één dropdown.
+   Alleen zichtbaar voor admins (manager/owner); Gebruikers + Auditlog alleen voor owners.
+   Op admin-pagina's is de bezoeker altijd admin — daar volstaat is_owner in de context. #}
+{% if is_admin | default(true) %}
+<style>
+  .gear-wrap { position: relative; }
+  .gear-menu {
+    position: absolute; right: 0; top: calc(100% + .4rem); z-index: 500;
+    background: #fff; border: 1px solid var(--gray-200); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.12);
+    min-width: 190px; padding: .35rem; display: none;
+  }
+  .gear-menu.open { display: block; }
+  .gear-menu a {
+    display: block; padding: .5rem .75rem; border-radius: 7px;
+    font-size: .875rem; color: var(--gray-700); text-decoration: none;
+  }
+  .gear-menu a:hover { background: var(--gray-50); }
+</style>
+<div class="gear-wrap">
+  <button class="btn btn-ghost btn-sm" onclick="gearToggle(event)" title="Instellingen" aria-label="Instellingen">⚙️</button>
+  <div id="gear-menu" class="gear-menu">
+    <a href="/veilingen">🏷 Veilingen</a>
+    <a href="/admin/overzicht">📋 Beheersoverzicht</a>
+    <a href="/admin">➕ Nieuwe veiling</a>
+    {% if is_owner %}
+    <a href="/admin/gebruikers">👥 Gebruikers</a>
+    <a href="/admin/audit">📜 Auditlog</a>
+    {% endif %}
+  </div>
+</div>
+<script>
+  function gearToggle(e) {
+    e.stopPropagation();
+    document.getElementById('gear-menu').classList.toggle('open');
+  }
+  document.addEventListener('click', function () {
+    document.getElementById('gear-menu').classList.remove('open');
+  });
+</script>
+{% endif %}

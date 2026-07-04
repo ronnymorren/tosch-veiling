@@ -387,6 +387,7 @@ async def veilingen_page(request: Request):
         "auctions": auctions,
         "user": user,
         "is_admin": role in ("manager", "owner"),
+        "is_owner": role == "owner",
     })
 
 
