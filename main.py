@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import string
+import sys
 import time
 import urllib.request
 from contextlib import asynccontextmanager
@@ -57,15 +58,22 @@ IS_VERCEL = os.name != "nt"
 
 # ── Rolgebaseerde toegangscontrole ────────────────────────────────────────────
 
+def haal_rol(cur, email: str) -> str:
+    """Rol opzoeken via een al geopende cursor — voorkomt een extra
+    databaseverbinding (elke verbinding kost een TLS-handshake op serverless)."""
+    cur.execute("SELECT role FROM users WHERE email = %s", (email,))
+    row = cur.fetchone()
+    return (row["role"] or "participant") if row else "participant"
+
 def get_user_role(email: str) -> str:
-    """Haal de rol op van een gebruiker uit de database. Standaard: 'participant'."""
+    """Haal de rol op van een gebruiker uit de database. Standaard: 'participant'.
+    Opent een eigen verbinding — gebruik in page-routes liever haal_rol(cur, email)."""
     try:
         conn = get_conn()
         cur  = get_cur(conn)
-        cur.execute("SELECT role FROM users WHERE email = %s", (email,))
-        row = cur.fetchone()
+        role = haal_rol(cur, email)
         conn.close()
-        return (row["role"] or "participant") if row else "participant"
+        return role
     except Exception:
         return "participant"
 
@@ -305,21 +313,31 @@ def init_db():
     conn.commit()
     conn.close()
 
+def init_db_indien_nodig():
+    """Volledige init_db alleen draaien als het schema nog niet compleet is —
+    scheelt ~10 statements bij elke koude start op Vercel.
+    ⚠️ Nieuwe tabel of kolom toegevoegd? Pas dan de schemacheck hieronder aan
+    naar het nieuwste schema-element, anders draait de migratie nooit."""
+    try:
+        conn = get_conn()
+        cur  = get_cur(conn)
+        cur.execute("SELECT 1 FROM feedback_votes LIMIT 1")  # nieuwste tabel
+        conn.close()
+    except Exception:
+        try:
+            init_db()
+        except Exception:
+            pass
+
 # Direct initialiseren bij import
-try:
-    init_db()
-except Exception:
-    pass
+init_db_indien_nodig()
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        init_db()
-    except Exception:
-        pass
+    init_db_indien_nodig()
     yield
 
 app = FastAPI(
@@ -334,7 +352,9 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 jinja_env = Environment(
     loader=FileSystemLoader(str(BASE / "templates")),
     autoescape=True,   # 🔒 Fix 5: XSS-bescherming voor alle templates
-    cache_size=0,
+    # Python 3.14 heeft een hashability-bug in de templatecache; op 3.12 (Vercel)
+    # is de cache veilig en scheelt hercompileren per request.
+    cache_size=0 if sys.version_info >= (3, 14) else 400,
 )
 jinja_env.filters["euro"] = lambda v: "€\xa0" + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 templates = Jinja2Templates(env=jinja_env)
@@ -373,6 +393,43 @@ def auto_archiveer(cur) -> int:
     return cur.rowcount
 
 
+def verstuur_afloopmails(cur, conn) -> None:
+    """Stuur afloopmails voor beëindigde veilingen waar nog niet voor gemaild is.
+    Vangnet naast de polling op de veilingpagina: had niemand die pagina open
+    toen de veiling eindigde, dan gaan de mails alsnog bij de eerstvolgende
+    lading van /veilingen of het Beheersoverzicht. Atomisch per veiling via
+    notified 0→1, net als in de poll-route."""
+    now = nu().strftime("%Y-%m-%dT%H:%M:%S")
+    cur.execute("SELECT * FROM auctions WHERE notified = 0 AND end_time < %s", (now,))
+    for row in cur.fetchall():
+        cur.execute("UPDATE auctions SET notified = 1 WHERE id = %s AND notified = 0", (row["id"],))
+        conn.commit()
+        if cur.rowcount == 0:
+            continue  # andere instantie was eerder
+        cur.execute("SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC", (row["id"],))
+        bids = cur.fetchall()
+        if not bids:
+            continue  # geen deelnemers, niets te mailen
+        winner        = bids[0]["bidder_name"]
+        winnend_bod   = bids[0]["amount"]
+        winnaar_email = bids[0].get("email")
+        cur.execute(
+            "SELECT DISTINCT email FROM bids WHERE auction_id = %s AND email IS NOT NULL",
+            (row["id"],)
+        )
+        for d in cur.fetchall():
+            try:
+                stuur_afloop_mail(
+                    to          = d["email"],
+                    titel       = row["title"],
+                    winnaar     = winner,
+                    winnend_bod = winnend_bod,
+                    is_winner   = (d["email"] == winnaar_email),
+                )
+            except Exception:
+                pass
+
+
 @app.get("/veilingen", response_class=HTMLResponse)
 async def veilingen_page(request: Request):
     user = get_user(request)
@@ -382,11 +439,11 @@ async def veilingen_page(request: Request):
     domain = email.split("@")[1] if "@" in email else ""
     conn = get_conn()
     cur  = get_cur(conn)
+    verstuur_afloopmails(cur, conn)
     if auto_archiveer(cur):
         conn.commit()
     cur.execute("SELECT * FROM auctions WHERE archived = 0 ORDER BY id DESC")
     rows = cur.fetchall()
-    conn.close()
     now = nu().strftime("%Y-%m-%dT%H:%M:%S")
     auctions = []
     for r in rows:
@@ -398,7 +455,8 @@ async def veilingen_page(request: Request):
             if domain not in allowed:
                 continue
         auctions.append(d)
-    role = get_user_role(email)
+    role = haal_rol(cur, email)
+    conn.close()
     return templates.TemplateResponse(request, "veilingen.html", {
         "auctions": auctions,
         "user": user,
@@ -504,11 +562,11 @@ async def feedback_page(request: Request):
         ORDER BY (f.status = 'open') DESC, COUNT(v.id) DESC, f.id DESC
     """, (user["email"],))
     items = [dict(r) for r in cur.fetchall()]
+    role  = haal_rol(cur, user["email"])
     conn.close()
     for it in items:
         it["zelf_gestemd"] = bool(it["zelf_gestemd"])
         it["datum"] = (it["created_at"] or "")[:10]
-    role = get_user_role(user["email"])
     return templates.TemplateResponse(request, "feedback.html", {
         "items": items,
         "user": user,
@@ -548,11 +606,17 @@ async def api_feedback_stem(feedback_id: int, request: Request):
     return JSONResponse({"ok": True, "gestemd": gestemd, "stemmen": stemmen})
 
 
+FEEDBACK_STATUS_LABELS = {
+    "open": "Open", "gepland": "Gepland",
+    "doorgevoerd": "Doorgevoerd", "afgewezen": "Niet doorgevoerd",
+}
+
 @app.post("/api/feedback/{feedback_id}/status")
 async def api_feedback_status(feedback_id: int, request: Request):
-    """Eigenaar zet status (open/gepland/doorgevoerd/afgewezen) + reden."""
+    """Eigenaar zet status (open/gepland/doorgevoerd/afgewezen) + reden.
+    Bij een wijziging krijgt de indiener een mailtje."""
     user = get_user(request)
-    if not user or not is_owner(request):
+    if not user:
         raise HTTPException(status_code=403, detail="Alleen voor de eigenaar")
     try:
         data = await request.json()
@@ -566,18 +630,47 @@ async def api_feedback_status(feedback_id: int, request: Request):
         raise HTTPException(status_code=400, detail="Geef een reden bij afwijzen")
     conn = get_conn()
     cur  = get_cur(conn)
+    if haal_rol(cur, user["email"]) != "owner":
+        conn.close()
+        raise HTTPException(status_code=403, detail="Alleen voor de eigenaar")
+    cur.execute("SELECT email, naam, bericht, status FROM feedback WHERE id = %s", (feedback_id,))
+    oud = cur.fetchone()
+    if not oud:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Feedback niet gevonden")
     cur.execute(
         "UPDATE feedback SET status = %s, status_reden = %s, status_door = %s, status_at = %s "
         "WHERE id = %s",
         (status, reden or None, user["naam"], nu().isoformat(), feedback_id)
     )
-    gevonden = cur.rowcount > 0
     conn.commit()
     conn.close()
-    if not gevonden:
-        raise HTTPException(status_code=404, detail="Feedback niet gevonden")
     ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None
     log_audit(user["email"], "feedback_status", f"#{feedback_id} → {status}", ip)
+
+    # Mail de indiener bij een echte wijziging — niet bij eigen feedback of terug naar 'open'
+    if status != oud["status"] and status != "open" and oud["email"] != user["email"]:
+        label     = FEEDBACK_STATUS_LABELS.get(status, status)
+        bord_link = f"https://veiling.tosch.nl/feedback#fb-{feedback_id}"
+        korte     = (oud["bericht"] or "")[:200]
+        html_body = (
+            f"<p>Hoi {html.escape(oud['naam'])},</p>"
+            f"<p>Je feedback op Tosch Veiling heeft een update: <b>{html.escape(label)}</b></p>"
+            "<blockquote style='border-left:3px solid #ccc;padding-left:12px'>"
+            f"{html.escape(korte)}</blockquote>"
+            + (f"<p><b>Toelichting van {html.escape(user['naam'])}:</b> {html.escape(reden)}</p>" if reden else "")
+            + f"<p><a href='{bord_link}'>Bekijk op het feedback-bord</a></p>"
+            "<p style='color:#888;font-size:12px'>Verstuurd via Tosch Veiling</p>"
+        )
+        text_body = (
+            f"Hoi {oud['naam']},\n\nJe feedback heeft een update: {label}\n\n\"{korte}\"\n"
+            + (f"\nToelichting van {user['naam']}: {reden}\n" if reden else "")
+            + f"\nFeedback-bord: {bord_link}\n\nVerstuurd via Tosch Veiling"
+        )
+        try:
+            stuur_email(oud["email"], f"Update op je feedback: {label}", html_body, text_body)
+        except Exception:
+            pass  # status is al opgeslagen
     return JSONResponse({"ok": True})
 
 
@@ -585,10 +678,13 @@ async def api_feedback_status(feedback_id: int, request: Request):
 async def api_feedback_delete(feedback_id: int, request: Request):
     """Eigenaar verwijdert een feedback-item (spam/dubbelingen)."""
     user = get_user(request)
-    if not user or not is_owner(request):
+    if not user:
         raise HTTPException(status_code=403, detail="Alleen voor de eigenaar")
     conn = get_conn()
     cur  = get_cur(conn)
+    if haal_rol(cur, user["email"]) != "owner":
+        conn.close()
+        raise HTTPException(status_code=403, detail="Alleen voor de eigenaar")
     cur.execute("DELETE FROM feedback WHERE id = %s", (feedback_id,))
     gevonden = cur.rowcount > 0
     conn.commit()
@@ -639,11 +735,13 @@ async def admin_overzicht(request: Request):
     user = get_user(request)
     if not user:
         return RedirectResponse(url="/?next=/admin/overzicht", status_code=303)
-    role = get_user_role(user["email"])
-    if role not in ("manager", "owner"):
-        return RedirectResponse(url="/?next=/admin/overzicht", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
+    role = haal_rol(cur, user["email"])
+    if role not in ("manager", "owner"):
+        conn.close()
+        return RedirectResponse(url="/?next=/admin/overzicht", status_code=303)
+    verstuur_afloopmails(cur, conn)
     if auto_archiveer(cur):
         conn.commit()
     cur.execute("""
@@ -1200,11 +1298,12 @@ async def admin_biedingen(request: Request, auction_id: int):
     user = get_user(request)
     if not user:
         return RedirectResponse(url=f"/?next=/admin/veiling/{auction_id}/biedingen", status_code=303)
-    role = get_user_role(user["email"])
-    if role not in ("manager", "owner"):
-        return RedirectResponse(url=f"/?next=/admin/veiling/{auction_id}/biedingen", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
+    role = haal_rol(cur, user["email"])
+    if role not in ("manager", "owner"):
+        conn.close()
+        return RedirectResponse(url=f"/?next=/admin/veiling/{auction_id}/biedingen", status_code=303)
     cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
     auction = cur.fetchone()
     if not auction:
@@ -1227,15 +1326,19 @@ async def admin_biedingen(request: Request, auction_id: int):
 
 @app.get("/admin/gebruikers", response_class=HTMLResponse)
 async def admin_gebruikers(request: Request):
-    if not is_owner(request):
+    user = get_user(request)
+    if not user:
         return RedirectResponse(url="/?next=/admin/gebruikers", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
+    if haal_rol(cur, user["email"]) != "owner":
+        conn.close()
+        return RedirectResponse(url="/?next=/admin/gebruikers", status_code=303)
     cur.execute("SELECT email, naam, created_at FROM users WHERE role = 'manager' ORDER BY created_at DESC")
     managers = [dict(r) for r in cur.fetchall()]
     conn.close()
     return templates.TemplateResponse(request, "admin_gebruikers.html",
-        {"managers": managers, "user": get_user(request), "is_owner": True})
+        {"managers": managers, "user": user, "is_owner": True})
 
 
 @app.post("/api/admin/gebruikers")
@@ -1300,12 +1403,16 @@ async def verwijder_manager(manager_email: str, request: Request):
 
 @app.get("/admin/audit", response_class=HTMLResponse)
 async def admin_audit(request: Request):
-    if not is_owner(request):
+    user = get_user(request)
+    if not user:
         return RedirectResponse(url="/?next=/admin/audit", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
+    if haal_rol(cur, user["email"]) != "owner":
+        conn.close()
+        return RedirectResponse(url="/?next=/admin/audit", status_code=303)
     cur.execute("SELECT * FROM admin_audit ORDER BY created_at DESC LIMIT 500")
     logs = [dict(r) for r in cur.fetchall()]
     conn.close()
     return templates.TemplateResponse(request, "admin_audit.html",
-        {"logs": logs, "user": get_user(request), "is_owner": True})
+        {"logs": logs, "user": user, "is_owner": True})

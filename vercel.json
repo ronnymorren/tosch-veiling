@@ -1,4 +1,10 @@
 {
-  "builds": [{ "src": "main.py", "use": "@vercel/python" }],
-  "routes": [{ "src": "/(.*)", "dest": "main.py" }]
+  "builds": [
+    { "src": "main.py", "use": "@vercel/python" },
+    { "src": "static/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/static/(.*)", "dest": "/static/$1", "headers": { "Cache-Control": "public, max-age=86400" } },
+    { "src": "/(.*)", "dest": "main.py" }
+  ]
 }
