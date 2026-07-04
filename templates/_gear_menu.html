@@ -1,7 +1,7 @@
-{# Instellingen-menu (⚙️) — alle beheer-navigatie in één dropdown.
-   Alleen zichtbaar voor admins (manager/owner); Gebruikers + Auditlog alleen voor owners.
-   Op admin-pagina's is de bezoeker altijd admin — daar volstaat is_owner in de context. #}
-{% if is_admin | default(true) %}
+{# Instellingen-menu (⚙️) — zichtbaar voor iedereen; items per rol.
+   Iedereen: Veilingen, Feedback, Uitloggen. Admin (is_admin): + Beheersoverzicht, Nieuwe veiling.
+   Owner (is_owner): + Gebruikers, Auditlog.
+   Op admin-pagina's is de bezoeker altijd admin (route-guard) — daar volstaat is_owner in de context. #}
 <style>
   .gear-wrap { position: relative; }
   .gear-menu {
@@ -16,17 +16,24 @@
     font-size: .875rem; color: var(--gray-700); text-decoration: none;
   }
   .gear-menu a:hover { background: var(--gray-50); }
+  .gear-sep { border-top: 1px solid var(--gray-100); margin: .35rem 0; }
 </style>
 <div class="gear-wrap">
   <button class="btn btn-ghost btn-sm" onclick="gearToggle(event)" title="Instellingen" aria-label="Instellingen">⚙️</button>
   <div id="gear-menu" class="gear-menu">
     <a href="/veilingen">🏷 Veilingen</a>
+    <a href="/feedback">💬 Feedback</a>
+    {% if is_admin | default(true) %}
+    <div class="gear-sep"></div>
     <a href="/admin/overzicht">📋 Beheersoverzicht</a>
     <a href="/admin">➕ Nieuwe veiling</a>
+    {% endif %}
     {% if is_owner %}
     <a href="/admin/gebruikers">👥 Gebruikers</a>
     <a href="/admin/audit">📜 Auditlog</a>
     {% endif %}
+    <div class="gear-sep"></div>
+    <a href="/uitloggen" style="color:var(--gray-400)">🚪 Uitloggen</a>
   </div>
 </div>
 <script>
@@ -38,4 +45,3 @@
     document.getElementById('gear-menu').classList.remove('open');
   });
 </script>
-{% endif %}
