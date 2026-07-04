@@ -359,6 +359,20 @@ async def home(request: Request):
     return templates.TemplateResponse(request, "home.html")
 
 
+AUTO_ARCHIEF_DAGEN = 5
+
+def auto_archiveer(cur) -> int:
+    """Archiveer veilingen die AUTO_ARCHIEF_DAGEN of langer geleden zijn afgelopen.
+    Wordt lazy aangeroepen bij het laden van /veilingen en het Beheersoverzicht —
+    Vercel serverless heeft geen achtergrondtaken. Caller moet committen."""
+    grens = (nu() - timedelta(days=AUTO_ARCHIEF_DAGEN)).isoformat()
+    cur.execute(
+        "UPDATE auctions SET archived = 1 WHERE archived = 0 AND end_time < %s",
+        (grens,)
+    )
+    return cur.rowcount
+
+
 @app.get("/veilingen", response_class=HTMLResponse)
 async def veilingen_page(request: Request):
     user = get_user(request)
@@ -368,6 +382,8 @@ async def veilingen_page(request: Request):
     domain = email.split("@")[1] if "@" in email else ""
     conn = get_conn()
     cur  = get_cur(conn)
+    if auto_archiveer(cur):
+        conn.commit()
     cur.execute("SELECT * FROM auctions WHERE archived = 0 ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
@@ -628,6 +644,8 @@ async def admin_overzicht(request: Request):
         return RedirectResponse(url="/?next=/admin/overzicht", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
+    if auto_archiveer(cur):
+        conn.commit()
     cur.execute("""
         SELECT a.*, COUNT(b.id) as bid_count
         FROM auctions a
