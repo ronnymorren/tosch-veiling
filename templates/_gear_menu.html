@@ -1,14 +1,14 @@
 {# Instellingen-menu (⚙️) — zichtbaar voor iedereen; items per rol.
-   Iedereen: Veilingen, Feedback, Uitloggen. Admin (is_admin): + Beheersoverzicht, Nieuwe veiling.
-   Owner (is_owner): + Gebruikers, Auditlog.
-   Op admin-pagina's is de bezoeker altijd admin (route-guard) — daar volstaat is_owner in de context. #}
+   Iedereen: Veilingen, Feedback, naam wijzigen (boven Uitloggen), Uitloggen.
+   Admin (is_admin): + Beheersoverzicht, Nieuwe veiling. Owner (is_owner): + Gebruikers, Auditlog.
+   Op admin-pagina's is de bezoeker altijd admin (route-guard) — daar volstaan user + is_owner in de context. #}
 <style>
   .gear-wrap { position: relative; }
   .gear-menu {
     position: absolute; right: 0; top: calc(100% + .4rem); z-index: 500;
     background: #fff; border: 1px solid var(--gray-200); border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0,0,0,.12);
-    min-width: 190px; padding: .35rem; display: none;
+    min-width: 210px; padding: .35rem; display: none;
   }
   .gear-menu.open { display: block; }
   .gear-menu a {
@@ -17,6 +17,16 @@
   }
   .gear-menu a:hover { background: var(--gray-50); }
   .gear-sep { border-top: 1px solid var(--gray-100); margin: .35rem 0; }
+  .gear-naam {
+    padding: .5rem .75rem; border-radius: 7px; font-size: .875rem;
+    color: var(--gray-500); cursor: pointer; white-space: nowrap;
+  }
+  .gear-naam:hover { background: var(--gray-50); }
+  .gear-naam-edit { padding: .35rem .5rem; display: none; gap: .35rem; align-items: center; }
+  .gear-naam-edit input {
+    width: 120px; flex: 1; padding: .3rem .5rem; font-size: .8125rem;
+    border: 1.5px solid var(--gray-200); border-radius: 7px; font-family: inherit;
+  }
 </style>
 <div class="gear-wrap">
   <button class="btn btn-ghost btn-sm" onclick="gearToggle(event)" title="Instellingen" aria-label="Instellingen">⚙️</button>
@@ -33,6 +43,16 @@
     <a href="/admin/audit">📜 Auditlog</a>
     {% endif %}
     <div class="gear-sep"></div>
+    {% if user %}
+    <div id="naam-display" class="gear-naam" title="Klik om naam te wijzigen"
+         onclick="naamBewerken(event)">👋 <span id="naam-tekst">{{ user.naam }}</span> ✏️</div>
+    <div id="naam-edit" class="gear-naam-edit">
+      <input id="naam-input" type="text" value="{{ user.naam }}" maxlength="80"
+             onkeydown="if(event.key==='Enter')naamOpslaan();if(event.key==='Escape')naamAnnuleren()">
+      <button class="btn btn-primary btn-sm" onclick="naamOpslaan()">✔</button>
+      <button class="btn btn-ghost btn-sm" onclick="naamAnnuleren()">✕</button>
+    </div>
+    {% endif %}
     <a href="/uitloggen" style="color:var(--gray-400)">🚪 Uitloggen</a>
   </div>
 </div>
@@ -41,7 +61,45 @@
     e.stopPropagation();
     document.getElementById('gear-menu').classList.toggle('open');
   }
-  document.addEventListener('click', function () {
-    document.getElementById('gear-menu').classList.remove('open');
+  // Sluit alleen bij klik buiten het menu — bewerken van je naam houdt het menu open
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.gear-wrap')) {
+      document.getElementById('gear-menu').classList.remove('open');
+      naamAnnuleren();
+    }
   });
+  function naamBewerken(e) {
+    document.getElementById('naam-display').style.display = 'none';
+    document.getElementById('naam-edit').style.display = 'flex';
+    const inp = document.getElementById('naam-input');
+    inp.focus();
+    inp.select();
+  }
+  function naamAnnuleren() {
+    const edit = document.getElementById('naam-edit');
+    if (!edit) return;
+    edit.style.display = 'none';
+    document.getElementById('naam-display').style.display = '';
+  }
+  async function naamOpslaan() {
+    const inp  = document.getElementById('naam-input');
+    const naam = inp.value.trim();
+    if (!naam) return;
+    try {
+      const r = await fetch('/api/profiel/naam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ naam })
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d.detail || 'Opslaan mislukt');
+        return;
+      }
+      document.getElementById('naam-tekst').textContent = naam;
+      naamAnnuleren();
+    } catch {
+      alert('Fout bij opslaan. Probeer opnieuw.');
+    }
+  }
 </script>
