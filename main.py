@@ -44,7 +44,8 @@ DATABASE_URL   = os.getenv("DATABASE_URL", "")
 SESSION_COOKIE = "tosch_admin"
 SESSION_TTL    = 40 * 3600
 USER_COOKIE    = "tosch_user"
-USER_TTL       = 40 * 3600
+USER_TTL       = 30 * 24 * 3600   # 30 dagen geldig
+USER_REFRESH_NA = 24 * 3600       # cookie ouder dan 1 dag? → stilzwijgend verlengen bij activiteit
 
 # Vaste eigenaren — worden bij opstart in de database gezaaid
 EIGENAREN = ["rm@tosch.nl", "dm@tosch.nl"]
@@ -132,7 +133,7 @@ def get_user(request: Request) -> dict | None:
         payload  = json.loads(base64.urlsafe_b64decode(padded2).decode())
         if int(time.time()) - int(payload["ts"]) > USER_TTL:
             return None
-        return {"naam": payload["naam"], "email": payload["email"]}
+        return {"naam": payload["naam"], "email": payload["email"], "ts": int(payload["ts"])}
     except Exception:
         return None
 
@@ -346,6 +347,23 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+@app.middleware("http")
+async def ververs_user_cookie(request: Request, call_next):
+    """Sliding sessie: geldige cookie ouder dan USER_REFRESH_NA wordt bij elk
+    bezoek stilzwijgend vernieuwd — actieve gebruikers hoeven zo nooit opnieuw
+    in te loggen; pas na 30 dagen inactiviteit verloopt de sessie."""
+    response = await call_next(request)
+    user = get_user(request)
+    if user and int(time.time()) - user["ts"] > USER_REFRESH_NA:
+        # Routes die zelf het cookie zetten/wissen (login, logout, naam-edit)
+        # niet overschrijven — anders maakt de refresh bv. een logout ongedaan.
+        al_gezet = any(h.startswith(USER_COOKIE + "=") for h in response.headers.getlist("set-cookie"))
+        if not al_gezet:
+            token = maak_user_token(user["naam"], user["email"])
+            response.set_cookie(USER_COOKIE, token, max_age=USER_TTL, httponly=True, samesite="lax")
+    return response
+
 
 BASE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
