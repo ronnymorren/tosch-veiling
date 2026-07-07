@@ -473,6 +473,17 @@ async def veilingen_page(request: Request):
             if domain not in allowed:
                 continue
         auctions.append(d)
+    ended_ids = [a["id"] for a in auctions if a["is_ended"]]
+    if ended_ids:
+        cur.execute(
+            """SELECT DISTINCT ON (auction_id) auction_id, bidder_name
+               FROM bids WHERE auction_id = ANY(%s)
+               ORDER BY auction_id, amount DESC""",
+            (ended_ids,),
+        )
+        winnaars = {w["auction_id"]: w["bidder_name"] for w in cur.fetchall()}
+        for a in auctions:
+            a["winnaar"] = winnaars.get(a["id"])
     role = haal_rol(cur, email)
     conn.close()
     return templates.TemplateResponse(request, "veilingen.html", {

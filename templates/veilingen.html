@@ -178,7 +178,7 @@
 
             <div class="veiling-bod-row">
               <div>
-                <div class="vbl">Huidig bod</div>
+                <div class="vbl">{% if a.is_ended and a.winnaar %}Winnend bod{% else %}Huidig bod{% endif %}</div>
                 <div class="vbg">{{ a.current_price | euro }}</div>
               </div>
               <div class="veiling-timer">
@@ -192,7 +192,9 @@
             </div>
 
             {% if a.is_ended %}
-            <span class="bied-knop afgelopen">Veiling afgelopen</span>
+            <span class="bied-knop afgelopen">
+              {% if a.winnaar %}🏆 Gewonnen door {{ a.winnaar | e }}{% else %}Afgelopen — geen biedingen{% endif %}
+            </span>
             {% else %}
             <a href="/veiling/{{ a.id }}" class="bied-knop">Bied mee →</a>
             {% endif %}
@@ -235,7 +237,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.7.1 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.7.2 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>
