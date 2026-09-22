@@ -147,7 +147,7 @@
           <!-- Header -->
           <div class="panel-topbar">
             <span class="panel-tag">Live biedpaneel</span>
-            <span class="panel-ver">v1.8.0</span>
+            <span class="panel-ver">v1.9.0</span>
           </div>
           <div class="panel-realtime">Realtime</div>
 
@@ -265,6 +265,7 @@
     let auctionData = null;
     let currentBedrag = 0, minBedrag = 0;
     let endTime = null;
+    let looptijdMs = null;   // aanmaak → einde, voor de schaal van de timer-cirkel
     let countdownInterval = null;
     let alarmGegeven = false;
 
@@ -312,6 +313,10 @@
       ).join('');
 
       endTime = new Date(data.end_time);
+      // Cirkel loopt van 100% bij aanmaken naar 0% bij einde. Oude veilingen
+      // zonder created_at vallen terug op 7 dagen.
+      looptijdMs = data.created_at ? endTime - new Date(data.created_at) : null;
+      if (!(looptijdMs > 0)) looptijdMs = 7 * 86400000;
       document.getElementById('eindigOp').textContent = fmtDatumKort(endTime);
       startCountdown();
 
@@ -439,7 +444,7 @@
                        : h > 0 ? h + 'u ' + pad(m) + 'm'
                        :         pad(m) + ':' + pad(s);
 
-      const fraction = Math.min(diff / (7 * 86400000), 1);
+      const fraction = Math.min(Math.max(diff / looptijdMs, 0), 1);
       arc.style.strokeDashoffset = circ * (1 - fraction);
     }
 
@@ -501,11 +506,20 @@
 
     // ── Polling (vervangt WebSocket — werkt ook op Vercel serverless) ────────
     let pollInterval = null;
+    const POLL_ACTIEF    = 3000;    // tab zichtbaar
+    const POLL_VERBORGEN = 30000;   // tab op de achtergrond: 10x minder databaseverkeer
 
     function startPolling() {
       if (pollInterval) clearInterval(pollInterval);
-      pollInterval = setInterval(peilVeiling, 3000);
+      pollInterval = setInterval(peilVeiling, document.hidden ? POLL_VERBORGEN : POLL_ACTIEF);
     }
+
+    // Tab weer zichtbaar? Direct verversen en terug naar het snelle ritme.
+    document.addEventListener('visibilitychange', () => {
+      if (!pollInterval) return;          // veiling afgelopen of nog niet geladen
+      startPolling();
+      if (!document.hidden) peilVeiling();
+    });
 
     async function peilVeiling() {
       try {
@@ -542,6 +556,7 @@
         // Veiling afgelopen?
         if (data.status === 'ended') {
           clearInterval(pollInterval);
+          pollInterval = null;
           toonAfgelopen(data.winner, data.current_price, true);
         }
       } catch { /* stil falen, volgende poll probeert het opnieuw */ }
@@ -666,7 +681,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.8.0 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.9.0 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>

@@ -50,6 +50,12 @@ USER_REFRESH_NA = 24 * 3600       # cookie ouder dan 1 dag? → stilzwijgend ver
 
 # Vaste eigenaren — worden bij opstart in de database gezaaid
 EIGENAREN = ["rm@tosch.nl", "dm@tosch.nl"]
+ADMIN_ROLLEN = ("manager", "owner")
+OWNER_ROLLEN = ("owner",)
+
+# Inlogcode: max aantal actieve codes per adres per 10 min, en max foute pogingen per code
+LOGIN_MAX_CODES    = 3
+LOGIN_MAX_POGINGEN = 5
 
 if not SESSION_SECRET:
     raise RuntimeError("SESSION_SECRET is niet ingesteld. Voeg toe aan .env of Vercel Environment Variables.")
@@ -80,6 +86,14 @@ def haal_rol(cur, email: str) -> str:
     row = cur.fetchone()
     return (row["role"] or "participant") if row else "participant"
 
+def rol_check(request: Request, cur, rollen) -> dict | None:
+    """Ingelogde gebruiker als die één van `rollen` heeft, anders None.
+    Gebruikt de bestaande cursor: geen extra databaseverbinding."""
+    user = get_user(request)
+    if not user:
+        return None
+    return user if haal_rol(cur, user["email"]) in rollen else None
+
 def get_user_role(email: str) -> str:
     """Haal de rol op van een gebruiker uit de database. Standaard: 'participant'.
     Opent een eigen verbinding — gebruik in page-routes liever haal_rol(cur, email)."""
@@ -106,16 +120,18 @@ def is_owner(request: Request) -> bool:
         return False
     return get_user_role(user["email"]) == "owner"
 
-def log_audit(actor_email: str, action: str, target: str = None, ip: str = None):
-    """Schrijf een beheersactie naar de auditlog."""
+def log_audit(actor_email: str, action: str, target: str = None, ip: str = None, cur=None):
+    """Schrijf een beheersactie naar de auditlog. Met `cur` gaat de insert mee op
+    de bestaande verbinding (caller commit); zonder `cur` een eigen verbinding."""
+    sql    = ("INSERT INTO admin_audit (actor_email, action, target, ip, created_at) "
+              "VALUES (%s, %s, %s, %s, %s)")
+    params = (actor_email, action, target, ip, nu().isoformat())
+    if cur is not None:
+        cur.execute(sql, params)
+        return
     try:
         conn = get_conn()
-        cur  = get_cur(conn)
-        cur.execute(
-            "INSERT INTO admin_audit (actor_email, action, target, ip, created_at) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (actor_email, action, target, ip, nu().isoformat())
-        )
+        get_cur(conn).execute(sql, params)
         conn.commit()
         conn.close()
     except Exception:
@@ -154,15 +170,19 @@ def get_user(request: Request) -> dict | None:
 
 # ── E-mail helper ─────────────────────────────────────────────────────────────
 
-def stuur_email(to: str, subject: str, html_body: str, text_body: str):
-    payload = json.dumps({
+def stuur_email(to, subject: str, html_body: str, text_body: str, bcc: list | None = None):
+    """`to` is één adres of een lijst; `bcc` een lijst (ontvangers zien elkaar niet)."""
+    body = {
         "api_key":   os.getenv("SMTP2GO_API_KEY", ""),
-        "to":        [to],
+        "to":        [to] if isinstance(to, str) else list(to),
         "sender":    os.getenv("SMTP_FROM", "veilingen@tosch.nl"),
         "subject":   subject,
         "html_body": html_body,
         "text_body": text_body,
-    }).encode()
+    }
+    if bcc:
+        body["bcc"] = list(bcc)
+    payload = json.dumps(body).encode()
     req = urllib.request.Request(
         "https://api.smtp2go.com/v3/email/send",
         data=payload,
@@ -186,8 +206,9 @@ def get_client_ip(request: Request) -> str:
 
 # ── Afloopmail ────────────────────────────────────────────────────────────────
 
-def stuur_afloop_mail(to: str, titel: str, winnaar: str, winnend_bod: float, is_winner: bool):
-    """Stuur een afloopmail naar een deelnemer. Winnaar krijgt felicitaties, rest een 'afgelopen'-melding."""
+def stuur_afloop_mail(to, titel: str, winnaar: str, winnend_bod: float, is_winner: bool):
+    """Afloopmail. `to` = één adres (winnaar) of een lijst (overige deelnemers,
+    dan via bcc zodat niemand elkaars adres ziet)."""
     bod_str = f"€\xa0{winnend_bod:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     if is_winner:
@@ -213,7 +234,36 @@ def stuur_afloop_mail(to: str, titel: str, winnaar: str, winnend_bod: float, is_
       </div>
     </div>"""
 
-    stuur_email(to, onderwerp, html, intro_txt)
+    if isinstance(to, str):
+        stuur_email(to, onderwerp, html, intro_txt)
+    else:
+        stuur_email(os.getenv("SMTP_FROM", "veilingen@tosch.nl"), onderwerp, html, intro_txt, bcc=to)
+
+
+def mail_afloop(cur, row, bids) -> None:
+    """Twee mails per afgelopen veiling in plaats van één per deelnemer: winnaar
+    apart, overige deelnemers samen via bcc. Caller heeft `notified` al atomisch
+    op 1 gezet. Mailfouten zijn niet fataal."""
+    if not bids:
+        return
+    winner        = bids[0]["bidder_name"]
+    winnend_bod   = bids[0]["amount"]
+    winnaar_email = bids[0].get("email")
+    cur.execute(
+        "SELECT DISTINCT email FROM bids WHERE auction_id = %s AND email IS NOT NULL",
+        (row["id"],)
+    )
+    overigen = [d["email"] for d in cur.fetchall() if d["email"] != winnaar_email]
+    if winnaar_email:
+        try:
+            stuur_afloop_mail(winnaar_email, row["title"], winner, winnend_bod, True)
+        except Exception:
+            pass
+    if overigen:
+        try:
+            stuur_afloop_mail(overigen, row["title"], winner, winnend_bod, False)
+        except Exception:
+            pass
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -247,6 +297,7 @@ def init_db():
         )
     """)
     cur.execute("ALTER TABLE auctions ADD COLUMN IF NOT EXISTS notified INTEGER DEFAULT 0")
+    cur.execute("ALTER TABLE auctions ADD COLUMN IF NOT EXISTS created_at TEXT")  # v1.9: looptijd voor de timer-cirkel
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bids (
             id          SERIAL  PRIMARY KEY,
@@ -269,9 +320,11 @@ def init_db():
             auction_id INTEGER NOT NULL,
             code       TEXT    NOT NULL,
             expires_at TEXT    NOT NULL,
-            used       INTEGER DEFAULT 0
+            used       INTEGER DEFAULT 0,
+            pogingen   INTEGER DEFAULT 0
         )
     """)
+    cur.execute("ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS pogingen INTEGER DEFAULT 0")  # v1.9: rate limit
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id         SERIAL  PRIMARY KEY,
@@ -336,7 +389,8 @@ def init_db_indien_nodig():
     try:
         conn = get_conn()
         cur  = get_cur(conn)
-        cur.execute("SELECT 1 FROM feedback_votes LIMIT 1")  # nieuwste tabel
+        cur.execute("SELECT pogingen FROM email_verifications LIMIT 1")  # nieuwste kolom (v1.9)
+        cur.execute("SELECT created_at FROM auctions LIMIT 1")
         conn.close()
     except Exception:
         try:
@@ -362,12 +416,31 @@ app = FastAPI(
     openapi_url=None,
 )
 
+CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' https: data:; "      # productfoto's: proxy (self), archief + foto-kiezer direct van Bing
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
 @app.middleware("http")
 async def ververs_user_cookie(request: Request, call_next):
     """Sliding sessie: geldige cookie ouder dan USER_REFRESH_NA wordt bij elk
     bezoek stilzwijgend vernieuwd — actieve gebruikers hoeven zo nooit opnieuw
     in te loggen; pas na 30 dagen inactiviteit verloopt de sessie."""
     response = await call_next(request)
+    # Security-headers (v1.9). Inline scripts/styles zijn nodig: alle pagina's
+    # hebben onclick-handlers en <style>-blokken. Geen externe scripts of CDN's.
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Content-Security-Policy", CSP)
     user = get_user(request)
     if user and int(time.time()) - user["ts"] > USER_REFRESH_NA:
         # Routes die zelf het cookie zetten/wissen (login, logout, naam-edit)
@@ -439,27 +512,7 @@ def verstuur_afloopmails(cur, conn) -> None:
         if cur.rowcount == 0:
             continue  # andere instantie was eerder
         cur.execute("SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC, id ASC", (row["id"],))
-        bids = cur.fetchall()
-        if not bids:
-            continue  # geen deelnemers, niets te mailen
-        winner        = bids[0]["bidder_name"]
-        winnend_bod   = bids[0]["amount"]
-        winnaar_email = bids[0].get("email")
-        cur.execute(
-            "SELECT DISTINCT email FROM bids WHERE auction_id = %s AND email IS NOT NULL",
-            (row["id"],)
-        )
-        for d in cur.fetchall():
-            try:
-                stuur_afloop_mail(
-                    to          = d["email"],
-                    titel       = row["title"],
-                    winnaar     = winner,
-                    winnend_bod = winnend_bod,
-                    is_winner   = (d["email"] == winnaar_email),
-                )
-            except Exception:
-                pass
+        mail_afloop(cur, row, cur.fetchall())
 
 
 @app.get("/veilingen", response_class=HTMLResponse)
@@ -686,10 +739,9 @@ async def api_feedback_status(feedback_id: int, request: Request):
         "WHERE id = %s",
         (status, reden or None, user["naam"], nu().isoformat(), feedback_id)
     )
+    log_audit(user["email"], "feedback_status", f"#{feedback_id} → {status}", get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
-    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None
-    log_audit(user["email"], "feedback_status", f"#{feedback_id} → {status}", ip)
 
     # Mail de indiener bij een echte wijziging — niet bij eigen feedback of terug naar 'open'
     if status != oud["status"] and status != "open" and oud["email"] != user["email"]:
@@ -730,12 +782,12 @@ async def api_feedback_delete(feedback_id: int, request: Request):
         raise HTTPException(status_code=403, detail="Alleen voor de eigenaar")
     cur.execute("DELETE FROM feedback WHERE id = %s", (feedback_id,))
     gevonden = cur.rowcount > 0
+    if gevonden:
+        log_audit(user["email"], "feedback_verwijderd", f"#{feedback_id}", get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
     if not gevonden:
         raise HTTPException(status_code=404, detail="Feedback niet gevonden")
-    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None
-    log_audit(user["email"], "feedback_verwijderd", f"#{feedback_id}", ip)
     return JSONResponse({"ok": True})
 
 
@@ -937,20 +989,22 @@ async def product_info(request: Request):
 
 @app.post("/api/auction/create")
 async def create_auction(request: Request):
-    if not is_admin(request):  # 🔒 Fix 10: cookie-auth i.p.v. wachtwoord in JSON-body
-        raise HTTPException(status_code=403, detail="Geen toegang")
     data = await request.json()
 
     access_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
 
     conn = get_conn()
     cur  = get_cur(conn)
+    actor = rol_check(request, cur, ADMIN_ROLLEN)  # 🔒 cookie-auth, rol op dezelfde verbinding
+    if not actor:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("""
         INSERT INTO auctions
             (title, description, image_url, specs, start_price, current_price,
              min_increment, end_time, access_code,
-             require_email_verification, allowed_domains)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             require_email_verification, allowed_domains, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """, (
         data["title"],
@@ -964,15 +1018,13 @@ async def create_auction(request: Request):
         access_code,
         1 if data.get("require_email_verification") else 0,
         data.get("allowed_domains", "").strip(),
+        nu().isoformat(),
     ))
     auction_id = cur.fetchone()["id"]
+    log_audit(actor["email"], "veiling_aangemaakt", target=data["title"],
+              ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
-
-    actor = get_user(request)
-    if actor:
-        log_audit(actor["email"], "veiling_aangemaakt", target=data["title"],
-                  ip=get_client_ip(request))
 
     return JSONResponse({"auction_id": auction_id, "access_code": access_code})
 
@@ -1050,25 +1102,7 @@ async def get_auction(auction_id: int, request: Request):
         )
         conn.commit()
         if cur.rowcount > 0:
-            # Verzamel alle deelnemers met een e-mailadres
-            cur.execute(
-                "SELECT DISTINCT email, bidder_name FROM bids WHERE auction_id = %s AND email IS NOT NULL",
-                (row["id"],)
-            )
-            deelnemers = cur.fetchall()
-            winnend_bod   = bids[0]["amount"]
-            winnaar_email = bids[0].get("email")
-            for d in deelnemers:
-                try:
-                    stuur_afloop_mail(
-                        to          = d["email"],
-                        titel       = row["title"],
-                        winnaar     = winner,
-                        winnend_bod = winnend_bod,
-                        is_winner   = (d["email"] == winnaar_email),
-                    )
-                except Exception:
-                    pass  # Mail mislukt? Niet fataal
+            mail_afloop(cur, row, bids)  # 2 mails (winnaar + bcc-rest), niet 1 per deelnemer
 
     conn.close()
 
@@ -1082,6 +1116,7 @@ async def get_auction(auction_id: int, request: Request):
         "current_price":              row["current_price"],
         "min_increment":              row["min_increment"],
         "end_time":                   row["end_time"],
+        "created_at":                 row.get("created_at"),
         "status":                     "ended" if is_ended else "active",
         "winner":                     winner,
         "bids":                       [  # 🔒 Fix 12: geen email/IP in publieke response
@@ -1115,8 +1150,21 @@ async def send_login_code(request: Request):
     code       = "".join(secrets.choice("0123456789") for _ in range(6))
     expires_at = (nu() + timedelta(minutes=10)).isoformat()
 
-    # auction_id = 0 is schildwacht voor globale login (geen specifieke veiling)
-    cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = 0", (email,))
+    # auction_id = 0 is schildwacht voor globale login (geen specifieke veiling).
+    # Rate limit: verlopen codes opruimen, dan max LOGIN_MAX_CODES actieve codes per adres.
+    now_iso = nu().isoformat()
+    cur.execute(
+        "DELETE FROM email_verifications WHERE email = %s AND auction_id = 0 AND expires_at < %s",
+        (email, now_iso)
+    )
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM email_verifications "
+        "WHERE email = %s AND auction_id = 0 AND used = 0 AND expires_at >= %s",
+        (email, now_iso)
+    )
+    if cur.fetchone()["n"] >= LOGIN_MAX_CODES:
+        conn.close()
+        raise HTTPException(429, "Te veel codes aangevraagd. Wacht 10 minuten en probeer het opnieuw.")
     cur.execute(
         "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (%s, 0, %s, %s)",
         (email, code, expires_at)
@@ -1182,9 +1230,22 @@ async def verify_login_code(request: Request):
     if nu() > datetime.fromisoformat(row["expires_at"]):
         conn.close()
         raise HTTPException(400, "Code verlopen. Vraag een nieuwe code aan.")
-    if not hmac.compare_digest(row["code"], code):  # 🔒 Fix 9: timing-safe OTP vergelijking
+    if (row.get("pogingen") or 0) >= LOGIN_MAX_POGINGEN:
         conn.close()
-        raise HTTPException(400, "Onjuiste code. Probeer opnieuw.")
+        raise HTTPException(400, "Te veel foute pogingen. Vraag een nieuwe code aan.")
+    if not hmac.compare_digest(row["code"], code):  # 🔒 Fix 9: timing-safe OTP vergelijking
+        pogingen = (row.get("pogingen") or 0) + 1
+        over     = LOGIN_MAX_POGINGEN - pogingen
+        cur.execute(
+            "UPDATE email_verifications SET pogingen = %s, used = CASE WHEN %s <= 0 THEN 1 ELSE used END "
+            "WHERE id = %s",
+            (pogingen, over, row["id"])
+        )
+        conn.commit()
+        conn.close()
+        if over <= 0:
+            raise HTTPException(400, "Te veel foute pogingen. Vraag een nieuwe code aan.")
+        raise HTTPException(400, f"Onjuiste code. Nog {over} poging{'' if over == 1 else 'en'}.")
 
     cur.execute("UPDATE email_verifications SET used = 1 WHERE id = %s", (row["id"],))
 
@@ -1203,11 +1264,10 @@ async def verify_login_code(request: Request):
             (email, naam, nu().isoformat())
         )
 
+    role = haal_rol(cur, email)
+    log_audit(email, "login", ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
-
-    role = get_user_role(email)
-    log_audit(email, "login", ip=get_client_ip(request))
 
     token = maak_user_token(naam, email)
     resp  = JSONResponse({"ok": True, "role": role})
@@ -1274,11 +1334,11 @@ async def place_bid(request: Request):
 
 @app.delete("/api/bid/{bid_id}")
 async def delete_bid(bid_id: int, request: Request):
-    if not is_admin(request):
-        raise HTTPException(status_code=403, detail="Geen toegang")
-
     conn = get_conn()
     cur  = get_cur(conn)
+    if not rol_check(request, cur, ADMIN_ROLLEN):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("SELECT * FROM bids WHERE id = %s", (bid_id,))
     bid = cur.fetchone()
     if not bid:
@@ -1303,30 +1363,32 @@ async def delete_bid(bid_id: int, request: Request):
 
 @app.delete("/api/auction/{auction_id}")
 async def delete_auction(auction_id: int, request: Request):
-    if not is_admin(request):
-        raise HTTPException(status_code=403, detail="Geen toegang")
     conn = get_conn()
     cur  = get_cur(conn)
+    actor = rol_check(request, cur, ADMIN_ROLLEN)
+    if not actor:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("SELECT title FROM auctions WHERE id = %s", (auction_id,))
     auction_row = cur.fetchone()
     cur.execute("DELETE FROM bids WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM email_verifications WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM auctions WHERE id = %s", (auction_id,))
+    if auction_row:
+        log_audit(actor["email"], "veiling_verwijderd", target=auction_row["title"],
+                  ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
-    actor = get_user(request)
-    if actor and auction_row:
-        log_audit(actor["email"], "veiling_verwijderd", target=auction_row["title"],
-                  ip=get_client_ip(request))
     return JSONResponse({"ok": True})
 
 
 @app.post("/api/auction/{auction_id}/archive")
 async def archive_auction(auction_id: int, request: Request):
-    if not is_admin(request):
-        raise HTTPException(status_code=403, detail="Geen toegang")
     conn = get_conn()
     cur  = get_cur(conn)
+    if not rol_check(request, cur, ADMIN_ROLLEN):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("UPDATE auctions SET archived = 1 WHERE id = %s", (auction_id,))
     conn.commit()
     conn.close()
@@ -1334,10 +1396,11 @@ async def archive_auction(auction_id: int, request: Request):
 
 @app.post("/api/auction/{auction_id}/unarchive")
 async def unarchive_auction(auction_id: int, request: Request):
-    if not is_admin(request):
-        raise HTTPException(status_code=403, detail="Geen toegang")
     conn = get_conn()
     cur  = get_cur(conn)
+    if not rol_check(request, cur, ADMIN_ROLLEN):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("UPDATE auctions SET archived = 0 WHERE id = %s", (auction_id,))
     conn.commit()
     conn.close()
@@ -1396,8 +1459,6 @@ async def admin_gebruikers(request: Request):
 
 @app.post("/api/admin/gebruikers")
 async def voeg_manager_toe(request: Request):
-    if not is_owner(request):
-        raise HTTPException(status_code=403, detail="Geen toegang")
     data  = await request.json()
     email = data.get("email", "").strip().lower()
     naam  = data.get("naam", "").strip()
@@ -1410,6 +1471,10 @@ async def voeg_manager_toe(request: Request):
 
     conn = get_conn()
     cur  = get_cur(conn)
+    actor = rol_check(request, cur, OWNER_ROLLEN)
+    if not actor:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("SELECT role FROM users WHERE email = %s", (email,))
     row = cur.fetchone()
     if row:
@@ -1419,35 +1484,31 @@ async def voeg_manager_toe(request: Request):
             "INSERT INTO users (email, naam, created_at, role) VALUES (%s, %s, %s, 'manager')",
             (email, naam, nu().isoformat())
         )
+    log_audit(actor["email"], "manager_toegevoegd", target=email, ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
-
-    actor = get_user(request)
-    if actor:
-        log_audit(actor["email"], "manager_toegevoegd", target=email, ip=get_client_ip(request))
 
     return JSONResponse({"ok": True})
 
 
 @app.delete("/api/admin/gebruikers/{manager_email:path}")
 async def verwijder_manager(manager_email: str, request: Request):
-    if not is_owner(request):
-        raise HTTPException(status_code=403, detail="Geen toegang")
     if manager_email in EIGENAREN:
         raise HTTPException(status_code=400, detail="Eigenaren kunnen niet worden verwijderd")
 
     conn = get_conn()
     cur  = get_cur(conn)
+    actor = rol_check(request, cur, OWNER_ROLLEN)
+    if not actor:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("UPDATE users SET role = 'participant' WHERE email = %s AND role = 'manager'", (manager_email,))
     if cur.rowcount == 0:
         conn.close()
         raise HTTPException(status_code=404, detail="Beheerder niet gevonden")
+    log_audit(actor["email"], "manager_verwijderd", target=manager_email, ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
-
-    actor = get_user(request)
-    if actor:
-        log_audit(actor["email"], "manager_verwijderd", target=manager_email, ip=get_client_ip(request))
 
     return JSONResponse({"ok": True})
 

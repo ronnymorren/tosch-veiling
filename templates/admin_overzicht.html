@@ -159,7 +159,14 @@
     <div style="background:#fff;border-radius:14px;padding:2rem;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.2)">
       <div style="font-size:2rem;margin-bottom:.75rem">⚠️</div>
       <h2 style="font-size:1.2rem;font-weight:700;margin-bottom:.5rem">Veiling verwijderen?</h2>
-      <p id="verwijderTekst" style="color:var(--gray-500);font-size:.9375rem;margin-bottom:1.5rem"></p>
+      <p id="verwijderTekst" style="color:var(--gray-500);font-size:.9375rem;margin-bottom:1.25rem"></p>
+      <div id="verwijderTypeWrap" style="display:none;margin-bottom:1.25rem">
+        <label style="display:block;font-size:.8125rem;font-weight:600;color:var(--gray-700);margin-bottom:.375rem">
+          Typ <strong>VERWIJDER</strong> om te bevestigen
+        </label>
+        <input id="verwijderTypeInput" type="text" autocomplete="off" placeholder="VERWIJDER"
+               oninput="checkVerwijderInput()" style="letter-spacing:.08em;text-transform:uppercase">
+      </div>
       <div style="display:flex;gap:.75rem">
         <button class="btn btn-ghost" style="flex:1" onclick="sluitModal()">Annuleren</button>
         <button class="btn btn-primary" id="verwijderConfirm"
@@ -216,7 +223,7 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.8.0 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.9.0 · Samen werken aan overmorgen</span>
   </footer>
 
   <script>
@@ -257,10 +264,26 @@
     function verwijder(id, titel, biedingen, btn) {
       verwijderTarget = id;
       const tekst = biedingen > 0
-        ? `"${titel}" heeft ${biedingen} bod${biedingen > 1 ? 'ding' : ''}. Al deze gegevens worden permanent verwijderd en kunnen niet worden hersteld.`
+        ? `"${titel}" heeft ${biedingen} ${biedingen > 1 ? 'biedingen' : 'bod'}. Alle biedingen, namen en e-mailadressen worden permanent verwijderd en kunnen niet worden hersteld.`
         : `"${titel}" wordt permanent verwijderd. Dit kan niet ongedaan worden gemaakt.`;
       document.getElementById('verwijderTekst').textContent = tekst;
+      // Met biedingen: extra drempel, eerst VERWIJDER typen
+      const wrap  = document.getElementById('verwijderTypeWrap');
+      const input = document.getElementById('verwijderTypeInput');
+      const knop  = document.getElementById('verwijderConfirm');
+      wrap.style.display = biedingen > 0 ? 'block' : 'none';
+      input.value = '';
+      knop.disabled = biedingen > 0;
+      knop.style.opacity = biedingen > 0 ? '.45' : '1';
       document.getElementById('verwijderModal').classList.add('open');
+      if (biedingen > 0) setTimeout(() => input.focus(), 50);
+    }
+
+    function checkVerwijderInput() {
+      const ok   = document.getElementById('verwijderTypeInput').value.trim().toUpperCase() === 'VERWIJDER';
+      const knop = document.getElementById('verwijderConfirm');
+      knop.disabled = !ok;
+      knop.style.opacity = ok ? '1' : '.45';
     }
 
     function sluitModal() {
