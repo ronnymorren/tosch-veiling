@@ -9,6 +9,7 @@ import secrets
 import string
 import sys
 import time
+import urllib.parse
 import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -58,6 +59,19 @@ IS_VERCEL = os.name != "nt"
 
 
 # ── Rolgebaseerde toegangscontrole ────────────────────────────────────────────
+
+def domein_toegestaan(auction_row, email: str) -> bool:
+    """True als de veiling geen domeinbeperking heeft, of het e-maildomein erin staat."""
+    allowed_raw = (auction_row.get("allowed_domains") or "").strip()
+    if not allowed_raw:
+        return True
+    allowed = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
+    domain  = email.split("@")[1].lower() if "@" in email else ""
+    return domain in allowed
+
+# Hosts waarvan ingelogde gebruikers via de image-proxy mogen laden (productfoto's
+# komen van de Bing-CDN). Andere hosts alleen voor admins (foto-kiezer).
+PROXY_HOSTS_IEDEREEN = (".bing.net", ".bing.com")
 
 def haal_rol(cur, email: str) -> str:
     """Rol opzoeken via een al geopende cursor — voorkomt een extra
@@ -424,7 +438,7 @@ def verstuur_afloopmails(cur, conn) -> None:
         conn.commit()
         if cur.rowcount == 0:
             continue  # andere instantie was eerder
-        cur.execute("SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC", (row["id"],))
+        cur.execute("SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC, id ASC", (row["id"],))
         bids = cur.fetchall()
         if not bids:
             continue  # geen deelnemers, niets te mailen
@@ -478,7 +492,7 @@ async def veilingen_page(request: Request):
         cur.execute(
             """SELECT DISTINCT ON (auction_id) auction_id, bidder_name
                FROM bids WHERE auction_id = ANY(%s)
-               ORDER BY auction_id, amount DESC""",
+               ORDER BY auction_id, amount DESC, id ASC""",
             (ended_ids,),
         )
         winnaars = {w["auction_id"]: w["bidder_name"] for w in cur.fetchall()}
@@ -967,10 +981,15 @@ async def create_auction(request: Request):
 
 @app.get("/api/image-proxy")
 async def image_proxy(url: str, request: Request):
-    if not is_admin(request):  # 🔒 Fix 11: SSRF-bescherming — alleen admin mag proxy gebruiken
+    # 🔒 SSRF-bescherming: ingelogde gebruikers alleen Bing-CDN (productfoto's),
+    # elke andere host alleen voor admins (foto-kiezer bij aanmaken).
+    if not get_user(request):
         raise HTTPException(status_code=403, detail="Geen toegang")
     if not url.startswith("https://"):
         raise HTTPException(400, "Ongeldige URL")
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if not host.endswith(PROXY_HOSTS_IEDEREEN) and not is_admin(request):
+        raise HTTPException(status_code=403, detail="Geen toegang")
     try:
         req = urllib.request.Request(
             url,
@@ -992,7 +1011,10 @@ async def image_proxy(url: str, request: Request):
 # ── API: veiling ophalen ──────────────────────────────────────────────────────
 
 @app.get("/api/auction/{auction_id}")
-async def get_auction(auction_id: int):
+async def get_auction(auction_id: int, request: Request):
+    user = get_user(request)
+    if not user:  # 🔒 biedingen en namen alleen voor ingelogde gebruikers
+        raise HTTPException(status_code=401, detail="Niet ingelogd")
     conn = get_conn()
     cur  = get_cur(conn)
     cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
@@ -1001,9 +1023,12 @@ async def get_auction(auction_id: int):
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+    if not domein_toegestaan(row, user["email"]):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
 
     cur.execute(
-        "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC LIMIT 20",
+        "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC, id ASC LIMIT 20",
         (auction_id,)
     )
     bids = cur.fetchall()
@@ -1206,20 +1231,19 @@ async def place_bid(request: Request):
 
     conn = get_conn()
     cur  = get_cur(conn)
-    cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
+    # FOR UPDATE: rij vergrendeld tot de commit, zodat twee gelijktijdige
+    # biedingen (dubbelklik) na elkaar gecontroleerd worden en niet allebei
+    # hetzelfde bedrag kunnen plaatsen.
+    cur.execute("SELECT * FROM auctions WHERE id = %s FOR UPDATE", (auction_id,))
     row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
 
     # Domeincontrole
-    allowed_raw = (row["allowed_domains"] or "").strip()
-    if allowed_raw:
-        allowed = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
-        domain  = email.split("@")[1] if "@" in email else ""
-        if domain not in allowed:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
+    if not domein_toegestaan(row, email):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
 
     end_time = datetime.fromisoformat(row["end_time"])
     if nu() > end_time:
@@ -1339,7 +1363,7 @@ async def admin_biedingen(request: Request, auction_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
     cur.execute(
-        "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC", (auction_id,)
+        "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC, id ASC", (auction_id,)
     )
     bids = cur.fetchall()
     conn.close()

@@ -147,7 +147,7 @@
           <!-- Header -->
           <div class="panel-topbar">
             <span class="panel-tag">Live biedpaneel</span>
-            <span class="panel-ver">v1.7.2</span>
+            <span class="panel-ver">v1.8.0</span>
           </div>
           <div class="panel-realtime">Realtime</div>
 
@@ -228,7 +228,7 @@
             <div id="biedError"   class="fpanel-alert fpanel-alert-error"   style="display:none"></div>
             <div id="biedSuccess" class="fpanel-alert fpanel-alert-success" style="display:none"></div>
 
-            <button class="bod-btn" onclick="bied()">Bod plaatsen</button>
+            <button class="bod-btn" id="bodBtn" onclick="bied()">Bod plaatsen</button>
           </div>
 
         </div>
@@ -275,6 +275,10 @@
       document.getElementById('loginEmailTekst').textContent = MIJN_EMAIL;
       try {
         const res = await fetch(`/api/auction/${AUCTION_ID}`);
+        if (res.status === 401) {
+          window.location.href = '/?next=/veiling/' + AUCTION_ID;
+          return;
+        }
         if (!res.ok) {
           document.getElementById('laadStatus').innerHTML =
             '<p>Veiling niet gevonden.</p><a href="/veilingen" class="btn btn-primary" style="margin-top:1rem">← Terug naar overzicht</a>';
@@ -304,7 +308,7 @@
       // Specs
       const sl = document.getElementById('specsLijst');
       sl.innerHTML = (data.specs || []).map(s =>
-        `<div class="spec-rij"><span class="spec-n">${s.naam}</span><span class="spec-v">${s.waarde}</span></div>`
+        `<div class="spec-rij"><span class="spec-n">${esc(s.naam)}</span><span class="spec-v">${esc(s.waarde)}</span></div>`
       ).join('');
 
       endTime = new Date(data.end_time);
@@ -349,7 +353,7 @@
       }
       tbody.innerHTML = bids.map((b, i) => `
         <tr class="${i === 0 ? 'bied-rij-top' : 'bied-rij'}">
-          <td class="bied-naam">${b.bidder_name}</td>
+          <td class="bied-naam">${esc(b.bidder_name)}</td>
           <td class="bied-datum">${fmtDatum(b.timestamp)}</td>
           <td class="bied-bedrag right">${fmtEuro(b.amount)}</td>
         </tr>
@@ -366,6 +370,9 @@
       const errEl = document.getElementById('biedError');
       const okEl  = document.getElementById('biedSuccess');
       errEl.style.display = okEl.style.display = 'none';
+      const btn = document.getElementById('bodBtn');
+      if (btn.disabled) return;   // dubbelklik: tweede klik negeren
+      btn.disabled = true;
       try {
         const res = await fetch('/api/bid', {
           method: 'POST',
@@ -389,6 +396,8 @@
       } catch {
         errEl.textContent = 'Verbindingsfout. Probeer opnieuw.';
         errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
       }
     }
 
@@ -462,7 +471,7 @@
         card.innerHTML = `
           <div class="winner-icon">🏆</div>
           <div class="winner-titel">Gefeliciteerd!</div>
-          <div class="winner-sub">Jij hebt deze veiling gewonnen, ${winner}!</div>
+          <div class="winner-sub">Jij hebt deze veiling gewonnen, ${esc(winner)}!</div>
           <div class="winner-jij-box">
             <div class="winner-jij-label">Jouw winnend bod</div>
             <div class="winner-jij-bedrag">${fmtEuro(winnendBod)}</div>
@@ -478,7 +487,7 @@
           <div class="winner-sub">De winnaar is bekend!</div>
           <div class="winner-naam-box">
             <div class="winner-naam-label">Winnaar</div>
-            <div class="winner-naam">${winner}</div>
+            <div class="winner-naam">${esc(winner)}</div>
           </div>
           <div class="winner-bod-box">
             <div class="winner-bod-label">Winnend bod</div>
@@ -649,10 +658,15 @@
       return d.toLocaleDateString('nl-NL') + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
     }
     function pad(n) { return String(n).padStart(2, '0'); }
+    // HTML-escaping voor alles wat via innerHTML de pagina in gaat (namen, specs)
+    function esc(v) {
+      return String(v ?? '').replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.7.2 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.8.0 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>

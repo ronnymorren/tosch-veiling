@@ -32,7 +32,7 @@
       <div class="overzicht-card {% if a.is_ended %}card-ended{% endif %}" id="card-{{ a.id }}">
 
         {% if a.image_url %}
-        <img src="/api/image-proxy?url={{ a.image_url }}" alt="{{ a.title }}" class="ov-img">
+        <img src="/api/image-proxy?url={{ a.image_url | urlencode }}" alt="{{ a.title }}" class="ov-img">
         {% endif %}
 
         <div class="ov-body">
@@ -50,7 +50,7 @@
           <div class="ov-stats">
             <div class="ov-stat">
               <span class="ov-stat-label">Huidig bod</span>
-              <span class="ov-stat-val">€ {{ "%.2f"|format(a.current_price) }}</span>
+              <span class="ov-stat-val">{{ a.current_price | euro }}</span>
             </div>
             <div class="ov-stat">
               <span class="ov-stat-label">Biedingen</span>
@@ -124,7 +124,7 @@
             <div class="ov-stats">
               <div class="ov-stat">
                 <span class="ov-stat-label">Winnend bod</span>
-                <span class="ov-stat-val">€ {{ "%.2f"|format(a.current_price) }}</span>
+                <span class="ov-stat-val">{{ a.current_price | euro }}</span>
               </div>
               <div class="ov-stat">
                 <span class="ov-stat-label">Biedingen</span>
@@ -216,7 +216,7 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.7.2 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.8.0 · Samen werken aan overmorgen</span>
   </footer>
 
   <script>

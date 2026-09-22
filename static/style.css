@@ -1,19 +1,40 @@
 /* ── Avenir font ─────────────────────────────────────────────────────────── */
+/* Drie losse gewichten uit de Avenir-collectie (woff2, samen ±155 KB i.p.v. 1,6 MB).
+   Zonder deze splitsing pakte de browser alleen Avenir Book en waren koppen nooit vet. */
 @font-face {
   font-family: 'Avenir';
-  src: url('/static/fonts/Avenir.ttc') format('truetype');
-  font-weight: 100 900;
+  src: url('/static/fonts/avenir-book.woff2') format('woff2');
+  font-weight: 100 499;
   font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Avenir';
+  src: url('/static/fonts/avenir-heavy.woff2') format('woff2');
+  font-weight: 500 799;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Avenir';
+  src: url('/static/fonts/avenir-black.woff2') format('woff2');
+  font-weight: 800 900;
+  font-style: normal;
+  font-display: swap;
 }
 
 /* ── Reset & tokens ──────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* Formulier-elementen erven het font niet vanzelf; anders vallen knoppen en
+   inputs terug op Segoe UI terwijl de rest van de pagina in Avenir staat. */
+button, input, select, textarea { font: inherit; color: inherit; }
 
 :root {
   --orange:     #FF6F00;
   --orange-d:   #e06200;
   --orange-l:   #fff3e0;
   --orange-ring:#ffe0b2;
+  --blue:       #1E4962;   /* Tosch donkerblauw (secundair) */
   --green:      #16a34a;
   --green-l:    #86efac;
   --green-bg:   #f0fdf4;
@@ -348,7 +369,7 @@ body {
 /* Code info box */
 .code-info-box {
   background: var(--blue-bg);
-  color: #1d4ed8;
+  color: var(--blue);
   border-radius: 10px;
   padding: .75rem 1rem;
   font-size: .85rem;
@@ -459,7 +480,6 @@ body {
   cursor: pointer;
   transition: background .15s;
   margin-top: .25rem;
-  font-family: 'Avenir', sans-serif;
 }
 .bod-btn:hover { background: #111827; }
 
@@ -566,7 +586,7 @@ input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px 
 .btn-ghost { background: transparent; color: var(--gray-700); border: 1.5px solid var(--gray-200); }
 .btn-ghost:hover { background: var(--gray-100); }
 .btn-full { width: 100%; }
-.btn-sm   { font-size: .8125rem; padding: .375rem .875rem; }
+.btn-sm   { font-size: .8125rem; padding: .375rem .875rem; white-space: nowrap; }
 .btn-row  { display: flex; gap: .75rem; margin-top: 1rem; }
 
 /* Alert */

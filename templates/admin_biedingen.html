@@ -23,7 +23,7 @@
       <div class="bied-summary">
         <div class="bied-sum-item">
           <span class="bied-sum-label">Huidig bod</span>
-          <span class="bied-sum-val" id="huidigBod">€ {{ "%.2f"|format(auction.current_price) }}</span>
+          <span class="bied-sum-val" id="huidigBod">{{ auction.current_price | euro }}</span>
         </div>
         <div class="bied-sum-item">
           <span class="bied-sum-label">Aantal biedingen</span>
@@ -56,7 +56,7 @@
             <td class="bied-naam">{{ b.bidder_name }}</td>
             <td class="bied-datum">{{ b.email or '—' }}</td>
             <td class="bied-datum" style="font-family:monospace;font-size:.8rem">{{ b.ip_address or '—' }}</td>
-            <td class="bied-bedrag right">€ {{ "%.2f"|format(b.amount) }}</td>
+            <td class="bied-bedrag right" style="white-space:nowrap">{{ b.amount | euro }}</td>
             <td class="bied-datum">{{ b.timestamp[:16].replace("T", " ") }}</td>
             <td style="text-align:right">
               <button class="btn btn-ghost btn-sm del-btn"
@@ -136,7 +136,7 @@
 
         // Samenvatting bijwerken
         document.getElementById('huidigBod').textContent =
-          '€ ' + data.new_price.toFixed(2).replace('.', ',');
+          new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR'}).format(data.new_price);
         const n = document.querySelectorAll('#biedTabel .bied-rij').length;
         const el = document.getElementById('aantalBiedingen');
         el.textContent = n;
@@ -147,7 +147,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.7.2 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.8.0 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>
