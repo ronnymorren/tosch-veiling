@@ -673,21 +673,20 @@ input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px 
   opacity: .8;
 }
 
-/* ── Admin navbar — mobiel ───────────────────────────────────────────────── */
+/* ── Navbar — mobiel (alle pagina's) ─────────────────────────────────────── */
 @media (max-width: 640px) {
-  .admin-body .navbar {
+  .navbar {
     padding: .6rem 1rem;
-    flex-wrap: wrap;
     gap: .4rem;
   }
-  .admin-body .navbar > div {
-    flex-wrap: wrap;
-    gap: .35rem;
+  .navbar > div {
+    gap: .35rem !important;
   }
-  .admin-body .navbar .btn-sm {
+  .navbar .btn-sm {
     font-size: .72rem;
     padding: .3rem .6rem;
   }
+  .nav-logo { height: 30px; }
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
