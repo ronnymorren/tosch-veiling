@@ -149,7 +149,7 @@
             <span class="panel-tag">Live biedpaneel</span>
             <span class="panel-ver">v1.9.0</span>
           </div>
-          <div class="panel-realtime">Realtime</div>
+          <div class="panel-realtime" id="panelRealtime">Realtime</div>
 
           <!-- Circulaire timer -->
           <div class="circle-wrap">
@@ -427,8 +427,9 @@
       }
 
       // ⏰ Eindalarm bij nog 5 minuten
-      if (diff < 5 * 60 * 1000 && !alarmGegeven) {
+      if (diff < EINDFASE_MS && !alarmGegeven) {
         alarmGegeven = true;
+        if (pollInterval) startPolling();   // naar 1 s pollen in de eindsprint
         disp.classList.add('countdown-alarm');
         arc.style.stroke = '#dc2626';
         arc.style.transition = 'stroke-dashoffset 1s linear';
@@ -506,12 +507,26 @@
 
     // ── Polling (vervangt WebSocket — werkt ook op Vercel serverless) ────────
     let pollInterval = null;
-    const POLL_ACTIEF    = 3000;    // tab zichtbaar
-    const POLL_VERBORGEN = 30000;   // tab op de achtergrond: 10x minder databaseverkeer
+    const POLL_ACTIEF         = 3000;    // tab zichtbaar
+    const POLL_VERBORGEN      = 30000;   // tab op de achtergrond: 10x minder databaseverkeer
+    const POLL_EIND_ACTIEF    = 1000;    // laatste 5 minuten: elke seconde
+    const POLL_EIND_VERBORGEN = 3000;    // laatste 5 minuten, tab verborgen: als normaal zichtbaar
+    const EINDFASE_MS         = 5 * 60 * 1000;
+
+    function eindfase() {
+      return endTime !== null && (endTime - new Date()) < EINDFASE_MS;
+    }
+
+    function pollTempo() {
+      if (eindfase()) return document.hidden ? POLL_EIND_VERBORGEN : POLL_EIND_ACTIEF;
+      return document.hidden ? POLL_VERBORGEN : POLL_ACTIEF;
+    }
 
     function startPolling() {
       if (pollInterval) clearInterval(pollInterval);
-      pollInterval = setInterval(peilVeiling, document.hidden ? POLL_VERBORGEN : POLL_ACTIEF);
+      pollInterval = setInterval(peilVeiling, pollTempo());
+      document.getElementById('panelRealtime').textContent =
+        eindfase() ? '🔥 Eindsprint · elke seconde bijgewerkt' : 'Realtime · elke 3 seconden bijgewerkt';
     }
 
     // Tab weer zichtbaar? Direct verversen en terug naar het snelle ritme.
