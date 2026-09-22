@@ -1159,12 +1159,18 @@ async def send_login_code(request: Request):
     )
     cur.execute(
         "SELECT COUNT(*) AS n FROM email_verifications "
-        "WHERE email = %s AND auction_id = 0 AND used = 0 AND expires_at >= %s",
+        "WHERE email = %s AND auction_id = 0 AND expires_at >= %s",
         (email, now_iso)
     )
     if cur.fetchone()["n"] >= LOGIN_MAX_CODES:
         conn.close()
         raise HTTPException(429, "Te veel codes aangevraagd. Wacht 10 minuten en probeer het opnieuw.")
+    # Alleen de nieuwste code is geldig: oudere codes ongeldig maken, zodat een
+    # opgebrande code niet terugvalt op een eerdere met verse pogingen.
+    cur.execute(
+        "UPDATE email_verifications SET used = 1 WHERE email = %s AND auction_id = 0 AND used = 0",
+        (email,)
+    )
     cur.execute(
         "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (%s, 0, %s, %s)",
         (email, code, expires_at)
