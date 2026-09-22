@@ -57,6 +57,9 @@ OWNER_ROLLEN = ("owner",)
 LOGIN_MAX_CODES    = 3
 LOGIN_MAX_POGINGEN = 5
 
+# Kijkers: iemand telt mee als zijn zichtbare tab in de laatste N seconden gepolld heeft
+KIJKERS_VENSTER_SEC = 15
+
 if not SESSION_SECRET:
     raise RuntimeError("SESSION_SECRET is niet ingesteld. Voeg toe aan .env of Vercel Environment Variables.")
 
@@ -361,6 +364,14 @@ def init_db():
         )
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS auction_presence (
+            auction_id   INTEGER NOT NULL,
+            email        TEXT    NOT NULL,
+            laatst_gezien TEXT   NOT NULL,
+            PRIMARY KEY (auction_id, email)
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS feedback_votes (
             id          SERIAL  PRIMARY KEY,
             feedback_id INTEGER NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
@@ -391,6 +402,7 @@ def init_db_indien_nodig():
         cur  = get_cur(conn)
         cur.execute("SELECT pogingen FROM email_verifications LIMIT 1")  # nieuwste kolom (v1.9)
         cur.execute("SELECT created_at FROM auctions LIMIT 1")
+        cur.execute("SELECT 1 FROM auction_presence LIMIT 1")  # v1.9.1: kijkers
         conn.close()
     except Exception:
         try:
@@ -1063,7 +1075,7 @@ async def image_proxy(url: str, request: Request):
 # ── API: veiling ophalen ──────────────────────────────────────────────────────
 
 @app.get("/api/auction/{auction_id}")
-async def get_auction(auction_id: int, request: Request):
+async def get_auction(auction_id: int, request: Request, zichtbaar: int = 0):
     user = get_user(request)
     if not user:  # 🔒 biedingen en namen alleen voor ingelogde gebruikers
         raise HTTPException(status_code=401, detail="Niet ingelogd")
@@ -1093,6 +1105,32 @@ async def get_auction(auction_id: int, request: Request):
     if is_ended and bids:
         winner = bids[0]["bidder_name"]
 
+    # ── Kijkers: wie heeft de pagina nu zichtbaar open? ──────────────────────
+    # zichtbaar=1 → aanwezigheid bijwerken; zichtbaar=0 (tab op achtergrond) → regel weg.
+    # Alleen een aantal naar buiten, geen namen (keuze RM 22-09-2026).
+    kijkers = 0
+    if not is_ended:
+        now_dt = nu()
+        if zichtbaar:
+            cur.execute(
+                "INSERT INTO auction_presence (auction_id, email, laatst_gezien) VALUES (%s, %s, %s) "
+                "ON CONFLICT (auction_id, email) DO UPDATE SET laatst_gezien = EXCLUDED.laatst_gezien",
+                (auction_id, user["email"], now_dt.isoformat())
+            )
+        else:
+            cur.execute("DELETE FROM auction_presence WHERE auction_id = %s AND email = %s",
+                        (auction_id, user["email"]))
+        cur.execute(
+            "DELETE FROM auction_presence WHERE auction_id = %s AND laatst_gezien < %s",
+            (auction_id, (now_dt - timedelta(seconds=KIJKERS_VENSTER_SEC * 8)).isoformat())
+        )
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM auction_presence WHERE auction_id = %s AND laatst_gezien >= %s",
+            (auction_id, (now_dt - timedelta(seconds=KIJKERS_VENSTER_SEC)).isoformat())
+        )
+        kijkers = cur.fetchone()["n"]
+        conn.commit()
+
     # ── Afloopmail: één keer versturen zodra de veiling eindigt ──────────────
     if is_ended and bids and not row["notified"]:
         # Atomisch: alleen de instantie die notified van 0→1 zet stuurt de mails
@@ -1117,6 +1155,7 @@ async def get_auction(auction_id: int, request: Request):
         "min_increment":              row["min_increment"],
         "end_time":                   row["end_time"],
         "created_at":                 row.get("created_at"),
+        "kijkers":                    kijkers,
         "status":                     "ended" if is_ended else "active",
         "winner":                     winner,
         "bids":                       [  # 🔒 Fix 12: geen email/IP in publieke response
@@ -1378,6 +1417,7 @@ async def delete_auction(auction_id: int, request: Request):
     cur.execute("SELECT title FROM auctions WHERE id = %s", (auction_id,))
     auction_row = cur.fetchone()
     cur.execute("DELETE FROM bids WHERE auction_id = %s", (auction_id,))
+    cur.execute("DELETE FROM auction_presence WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM email_verifications WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM auctions WHERE id = %s", (auction_id,))
     if auction_row:

@@ -58,6 +58,16 @@
       letter-spacing: .08em; text-transform: uppercase; margin-bottom: .25rem; }
     .winner-jij-bedrag { font-size: 2rem; font-weight: 800; color: var(--orange); }
 
+    /* ── Kijkers ─────────────────────────────────────────────────────────── */
+    .panel-kijkers {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: var(--orange-l); color: var(--orange-d);
+      font-size: .8125rem; font-weight: 700;
+      padding: .3rem .75rem; border-radius: 999px;
+      margin: -.4rem 0 1rem;
+    }
+    .panel-kijkers .kijkers-getal { font-size: 1rem; }
+
     /* ── Countdown alarm ────────────────────────────────────────────────────── */
     @keyframes timerAlarm {
       0%, 100% { color: var(--gray-900); }
@@ -147,9 +157,10 @@
           <!-- Header -->
           <div class="panel-topbar">
             <span class="panel-tag">Live biedpaneel</span>
-            <span class="panel-ver">v1.9.0</span>
+            <span class="panel-ver">v1.9.1</span>
           </div>
           <div class="panel-realtime" id="panelRealtime">Realtime</div>
+          <div class="panel-kijkers" id="panelKijkers" style="display:none"></div>
 
           <!-- Circulaire timer -->
           <div class="circle-wrap">
@@ -275,7 +286,7 @@
       }
       document.getElementById('loginEmailTekst').textContent = MIJN_EMAIL;
       try {
-        const res = await fetch(`/api/auction/${AUCTION_ID}`);
+        const res = await fetch(`/api/auction/${AUCTION_ID}?zichtbaar=${document.hidden ? 0 : 1}`);
         if (res.status === 401) {
           window.location.href = '/?next=/veiling/' + AUCTION_ID;
           return;
@@ -322,10 +333,20 @@
 
       updateBod(data);
       updateBidHistory(data.bids);
+      updateKijkers(data.kijkers);
       document.getElementById('biedNaam').value = mijnNaam;
 
       if (data.status === 'ended') toonAfgelopen(data.winner, data.current_price, false);
       else startPolling();
+    }
+
+    function updateKijkers(n) {
+      const el = document.getElementById('panelKijkers');
+      if (typeof n !== 'number' || n < 1) { el.style.display = 'none'; return; }
+      el.style.display = 'inline-flex';
+      el.innerHTML = n === 1
+        ? '👀 <span class="kijkers-getal">1</span> kijker · jij bent de enige'
+        : `👀 <span class="kijkers-getal">${n}</span> collega's kijken mee`;
     }
 
     function updateBod(data) {
@@ -454,6 +475,7 @@
       // Panel bijwerken
       document.getElementById('biedFormWrap').style.display = 'none';
       document.getElementById('afgelopenBanner').style.display = 'flex';
+      document.getElementById('panelKijkers').style.display = 'none';
       const badge = document.getElementById('liveBadge');
       badge.textContent = '● AFGELOPEN';
       badge.style.background = '#f3f4f6';
@@ -538,7 +560,7 @@
 
     async function peilVeiling() {
       try {
-        const res = await fetch(`/api/auction/${AUCTION_ID}`);
+        const res = await fetch(`/api/auction/${AUCTION_ID}?zichtbaar=${document.hidden ? 0 : 1}`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -560,6 +582,7 @@
 
         updateBod(data);
         updateBidHistory(data.bids);
+        updateKijkers(data.kijkers);
 
         // Flash alleen als het bod daadwerkelijk veranderd is
         if (data.current_price !== prevBod) {
@@ -696,7 +719,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.9.0 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.9.1 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>
