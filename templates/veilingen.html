@@ -186,7 +186,7 @@
                 {% if a.is_ended %}
                 <div class="vtv">Afgelopen</div>
                 {% else %}
-                <div class="vtv" data-endtime="{{ a.end_time }}" id="timer-{{ a.id }}">--</div>
+                <div class="vtv" data-endtime="{{ a.end_time }}" data-auction-id="{{ a.id }}" id="timer-{{ a.id }}">--</div>
                 {% endif %}
               </div>
             </div>
@@ -211,20 +211,58 @@
 
   <script>
     function pad(n) { return String(n).padStart(2, '0'); }
+    const serverBasis = Date.parse({{ server_time | tojson }});
+    const klokBasis = performance.now();
+    const timers = new Map();
+
+    async function verversTimer(el, state) {
+      if (state.bezig || state.afgelopen || document.hidden) return;
+      state.bezig = true;
+      state.laatstePoll = performance.now();
+      try {
+        const res = await fetch(`/api/auction/${el.dataset.auctionId}`, {cache: 'no-store'});
+        if (!res.ok) return;
+        const data = await res.json();
+        state.server = Date.parse(data.server_time);
+        state.klok = performance.now();
+        state.server += (state.klok - state.laatstePoll) / 2;
+        state.afgelopen = data.status === 'ended';
+        el.dataset.endtime = data.end_time;
+        const card = el.closest('.veiling-card');
+        card.querySelector('.vbg').textContent = new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR'}).format(data.current_price);
+        if (state.afgelopen) {
+          const badge = card.querySelector('.veiling-status');
+          badge.textContent = '● Afgelopen';
+          badge.className = 'veiling-status status-afgelopen';
+          card.querySelector('.bied-knop').textContent = 'Bekijk uitslag →';
+        }
+      } catch { /* Houd de klok voorlopig op Controle…; volgende poll probeert opnieuw. */ }
+      finally { state.bezig = false; }
+    }
 
     function updateTimers() {
       document.querySelectorAll('[data-endtime]').forEach(el => {
+        if (!timers.has(el)) timers.set(el, {server: serverBasis, klok: klokBasis, laatstePoll: -Infinity});
+        const state = timers.get(el);
         const end  = new Date(el.dataset.endtime);
-        const diff = end - new Date();
-        if (diff <= 0) {
+        const diff = end - (state.server + performance.now() - state.klok);
+        // Neem ook op het overzicht verlengingen over. In de laatste 15 seconden
+        // elke seconde; daarbuiten elke 30 seconden. Geen kijkerregistratie hier.
+        if (performance.now() - state.laatstePoll >= (diff <= 15000 ? 1000 : 30000)) verversTimer(el, state);
+        if (state.afgelopen) {
           el.textContent = 'Afgelopen';
+          return;
+        }
+        if (diff <= 0) {
+          el.textContent = 'Controle…';
           el.classList.add('alarm');
           return;
         }
-        const d = Math.floor(diff / 86400000);
-        const h = Math.floor((diff % 86400000) / 3600000);
-        const m = Math.floor((diff % 3600000)  / 60000);
-        const s = Math.floor((diff % 60000)    / 1000);
+        const seconden = Math.ceil(diff / 1000);
+        const d = Math.floor(seconden / 86400);
+        const h = Math.floor((seconden % 86400) / 3600);
+        const m = Math.floor((seconden % 3600) / 60);
+        const s = seconden % 60;
         el.textContent = d > 0 ? d + 'd ' + h + 'u'
                        : h > 0 ? h + 'u ' + pad(m) + 'm'
                        :         pad(m) + ':' + pad(s);
@@ -234,10 +272,13 @@
 
     updateTimers();
     setInterval(updateTimers, 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) { for (const [el, state] of timers) verversTimer(el, state); }
+    });
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.9.1 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.10.0 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>

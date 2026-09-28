@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import html
 import json
+import math
 import os
 import re
 import secrets
@@ -59,6 +60,18 @@ LOGIN_MAX_POGINGEN = 5
 
 # Kijkers: iemand telt mee als zijn zichtbare tab in de laatste N seconden gepolld heeft
 KIJKERS_VENSTER_SEC = 15
+
+# Een geaccepteerd bod in de laatste 5 seconden geeft opnieuw 10 seconden.
+VERLENG_GRENS_SEC = 5
+VERLENG_RESTEREND_SEC = 10
+
+
+def tijd_payload(end_time: str, server_now: datetime) -> dict:
+    """Expliciete tijdzone op de API; bestaande DB-opslag blijft Amsterdam-lokaal."""
+    return {
+        "end_time": datetime.fromisoformat(end_time).replace(tzinfo=AMS).isoformat(),
+        "server_time": server_now.replace(tzinfo=AMS).isoformat(),
+    }
 
 if not SESSION_SECRET:
     raise RuntimeError("SESSION_SECRET is niet ingesteld. Voeg toe aan .env of Vercel Environment Variables.")
@@ -516,15 +529,21 @@ def verstuur_afloopmails(cur, conn) -> None:
     toen de veiling eindigde, dan gaan de mails alsnog bij de eerstvolgende
     lading van /veilingen of het Beheersoverzicht. Atomisch per veiling via
     notified 0→1, net als in de poll-route."""
-    now = nu().strftime("%Y-%m-%dT%H:%M:%S")
-    cur.execute("SELECT * FROM auctions WHERE notified = 0 AND end_time < %s", (now,))
-    for row in cur.fetchall():
-        cur.execute("UPDATE auctions SET notified = 1 WHERE id = %s AND notified = 0", (row["id"],))
-        conn.commit()
-        if cur.rowcount == 0:
-            continue  # andere instantie was eerder
+    now = nu().isoformat()
+    cur.execute("SELECT id FROM auctions WHERE notified = 0 AND end_time <= %s", (now,))
+    for candidate in cur.fetchall():
+        # De kandidatenlijst kan verouderd zijn door een nog niet gecommit bod.
+        # Dezelfde rij-lock als bieden: na wachten de nieuwe eindtijd controleren.
+        cur.execute("SELECT * FROM auctions WHERE id = %s FOR UPDATE", (candidate["id"],))
+        row = cur.fetchone()
+        if not row or row["notified"] or nu() < datetime.fromisoformat(row["end_time"]):
+            conn.commit()
+            continue
+        cur.execute("UPDATE auctions SET notified = 1 WHERE id = %s", (row["id"],))
         cur.execute("SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC, id ASC", (row["id"],))
-        mail_afloop(cur, row, cur.fetchall())
+        bids = cur.fetchall()
+        conn.commit()  # nooit een rij-lock vasthouden tijdens SMTP
+        mail_afloop(cur, row, bids)
 
 
 @app.get("/veilingen", response_class=HTMLResponse)
@@ -539,13 +558,16 @@ async def veilingen_page(request: Request):
     verstuur_afloopmails(cur, conn)
     if auto_archiveer(cur):
         conn.commit()
-    cur.execute("SELECT * FROM auctions WHERE archived = 0 ORDER BY id DESC")
+    # Wacht ook hier op een lopend bod voordat een kaart definitief 'afgelopen'
+    # wordt. FOR SHARE geeft onderling gelijktijdige lezers wel ruimte.
+    cur.execute("SELECT * FROM auctions WHERE archived = 0 ORDER BY id DESC FOR SHARE")
     rows = cur.fetchall()
-    now = nu().strftime("%Y-%m-%dT%H:%M:%S")
+    now = nu()
     auctions = []
     for r in rows:
         d = dict(r)
-        d["is_ended"] = now > d["end_time"]
+        d["is_ended"] = now >= datetime.fromisoformat(d["end_time"]) or d["status"] == "ended"
+        d["end_time"] = datetime.fromisoformat(d["end_time"]).replace(tzinfo=AMS).isoformat()
         allowed_raw = (d.get("allowed_domains") or "").strip()
         if allowed_raw:
             allowed = [x.strip().lower() for x in allowed_raw.split(",") if x.strip()]
@@ -567,6 +589,7 @@ async def veilingen_page(request: Request):
     conn.close()
     return templates.TemplateResponse(request, "veilingen.html", {
         "auctions": auctions,
+        "server_time": now.replace(tzinfo=AMS).isoformat(),
         "user": user,
         "is_admin": role in ("manager", "owner"),
         "is_owner": role == "owner",
@@ -1075,74 +1098,77 @@ async def image_proxy(url: str, request: Request):
 # ── API: veiling ophalen ──────────────────────────────────────────────────────
 
 @app.get("/api/auction/{auction_id}")
-async def get_auction(auction_id: int, request: Request, zichtbaar: int = 0):
+async def get_auction(auction_id: int, request: Request, zichtbaar: int | None = None):
     user = get_user(request)
     if not user:  # 🔒 biedingen en namen alleen voor ingelogde gebruikers
         raise HTTPException(status_code=401, detail="Niet ingelogd")
     conn = get_conn()
-    cur  = get_cur(conn)
-    cur.execute("SELECT * FROM auctions WHERE id = %s", (auction_id,))
-    row = cur.fetchone()
+    try:
+        cur  = get_cur(conn)
+        # Eén consistente momentopname van eindtijd, prijs en biedingen; wacht op
+        # een gelijktijdig bod voordat we een winnaar/afloopmail mogen bepalen.
+        cur.execute("SELECT * FROM auctions WHERE id = %s FOR UPDATE", (auction_id,))
+        row = cur.fetchone()
 
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
-    if not domein_toegestaan(row, user["email"]):
-        conn.close()
-        raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
+        if not row:
+            raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+        if not domein_toegestaan(row, user["email"]):
+            raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
 
-    cur.execute(
-        "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC, id ASC LIMIT 20",
-        (auction_id,)
-    )
-    bids = cur.fetchall()
+        cur.execute(
+            "SELECT * FROM bids WHERE auction_id = %s ORDER BY amount DESC, id ASC LIMIT 20",
+            (auction_id,)
+        )
+        bids = cur.fetchall()
 
-    end_time  = datetime.fromisoformat(row["end_time"])
-    is_ended  = nu() > end_time or row["status"] == "ended"
-    req_email = bool(row["require_email_verification"])
+        end_time  = datetime.fromisoformat(row["end_time"])
+        server_now = nu()
+        is_ended  = server_now >= end_time or row["status"] == "ended"
+        req_email = bool(row["require_email_verification"])
 
-    winner = None
-    if is_ended and bids:
-        winner = bids[0]["bidder_name"]
+        winner = None
+        if is_ended and bids:
+            winner = bids[0]["bidder_name"]
 
-    # ── Kijkers: wie heeft de pagina nu zichtbaar open? ──────────────────────
-    # zichtbaar=1 → aanwezigheid bijwerken; zichtbaar=0 (tab op achtergrond) → regel weg.
-    # Alleen een aantal naar buiten, geen namen (keuze RM 22-09-2026).
-    kijkers = 0
-    if not is_ended:
-        now_dt = nu()
-        if zichtbaar:
+        # ── Kijkers: wie heeft de pagina nu zichtbaar open? ──────────────────────
+        # zichtbaar=1 → aanwezigheid bijwerken; zichtbaar=0 (tab op achtergrond) → regel weg.
+        # Alleen een aantal naar buiten, geen namen (keuze RM 22-09-2026).
+        kijkers = 0
+        if not is_ended:
+            now_dt = nu()
+            if zichtbaar:
+                cur.execute(
+                    "INSERT INTO auction_presence (auction_id, email, laatst_gezien) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (auction_id, email) DO UPDATE SET laatst_gezien = EXCLUDED.laatst_gezien",
+                    (auction_id, user["email"], now_dt.isoformat())
+                )
+            elif zichtbaar == 0:
+                cur.execute("DELETE FROM auction_presence WHERE auction_id = %s AND email = %s",
+                            (auction_id, user["email"]))
             cur.execute(
-                "INSERT INTO auction_presence (auction_id, email, laatst_gezien) VALUES (%s, %s, %s) "
-                "ON CONFLICT (auction_id, email) DO UPDATE SET laatst_gezien = EXCLUDED.laatst_gezien",
-                (auction_id, user["email"], now_dt.isoformat())
+                "DELETE FROM auction_presence WHERE auction_id = %s AND laatst_gezien < %s",
+                (auction_id, (now_dt - timedelta(seconds=KIJKERS_VENSTER_SEC * 8)).isoformat())
             )
-        else:
-            cur.execute("DELETE FROM auction_presence WHERE auction_id = %s AND email = %s",
-                        (auction_id, user["email"]))
-        cur.execute(
-            "DELETE FROM auction_presence WHERE auction_id = %s AND laatst_gezien < %s",
-            (auction_id, (now_dt - timedelta(seconds=KIJKERS_VENSTER_SEC * 8)).isoformat())
-        )
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM auction_presence WHERE auction_id = %s AND laatst_gezien >= %s",
-            (auction_id, (now_dt - timedelta(seconds=KIJKERS_VENSTER_SEC)).isoformat())
-        )
-        kijkers = cur.fetchone()["n"]
-        conn.commit()
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM auction_presence WHERE auction_id = %s AND laatst_gezien >= %s",
+                (auction_id, (now_dt - timedelta(seconds=KIJKERS_VENSTER_SEC)).isoformat())
+            )
+            kijkers = cur.fetchone()["n"]
 
-    # ── Afloopmail: één keer versturen zodra de veiling eindigt ──────────────
-    if is_ended and bids and not row["notified"]:
-        # Atomisch: alleen de instantie die notified van 0→1 zet stuurt de mails
-        cur.execute(
-            "UPDATE auctions SET notified = 1 WHERE id = %s AND notified = 0",
-            (row["id"],)
-        )
-        conn.commit()
-        if cur.rowcount > 0:
-            mail_afloop(cur, row, bids)  # 2 mails (winnaar + bcc-rest), niet 1 per deelnemer
+        # ── Afloopmail: één keer versturen zodra de veiling eindigt ──────────────
+        send_mail = is_ended and not row["notified"]
+        if send_mail:
+            # Atomisch: alleen de instantie die notified van 0→1 zet stuurt de mails
+            cur.execute(
+                "UPDATE auctions SET notified = 1 WHERE id = %s AND notified = 0",
+                (row["id"],)
+            )
+        conn.commit()  # snapshot/claim vastleggen; lock vrijgeven vóór e-mail
+        if send_mail:
+            mail_afloop(cur, row, bids)
 
-    conn.close()
+    finally:
+        conn.close()
 
     return JSONResponse({
         "id":                         row["id"],
@@ -1153,8 +1179,8 @@ async def get_auction(auction_id: int, request: Request, zichtbaar: int = 0):
         "start_price":                row["start_price"],
         "current_price":              row["current_price"],
         "min_increment":              row["min_increment"],
-        "end_time":                   row["end_time"],
-        "created_at":                 row.get("created_at"),
+        **tijd_payload(row["end_time"], server_now),
+        "created_at":                 datetime.fromisoformat(row["created_at"]).replace(tzinfo=AMS).isoformat() if row.get("created_at") else None,
         "kijkers":                    kijkers,
         "status":                     "ended" if is_ended else "active",
         "winner":                     winner,
@@ -1165,7 +1191,7 @@ async def get_auction(auction_id: int, request: Request, zichtbaar: int = 0):
         ],
         "require_email_verification": req_email,
         "access_code":                row["access_code"] if not req_email else None,
-    })
+    }, headers={"Cache-Control": "no-store"})
 
 
 # ── API: globale login – code versturen ──────────────────────────────────────
@@ -1328,51 +1354,59 @@ async def place_bid(request: Request):
     if not user:
         raise HTTPException(status_code=403, detail="Niet ingelogd — ga naar de homepage")
 
-    data        = await request.json()
-    auction_id  = int(data["auction_id"])
-    amount      = float(data["amount"])
+    data = await request.json()
+    try:
+        auction_id = int(data["auction_id"])
+        amount = float(data["amount"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Ongeldig bod")
+    if not math.isfinite(amount) or amount < 0:
+        raise HTTPException(status_code=400, detail="Ongeldig bedrag")
     bidder_name = user["naam"]
     email       = user["email"]
 
     conn = get_conn()
-    cur  = get_cur(conn)
-    # FOR UPDATE: rij vergrendeld tot de commit, zodat twee gelijktijdige
-    # biedingen (dubbelklik) na elkaar gecontroleerd worden en niet allebei
-    # hetzelfde bedrag kunnen plaatsen.
-    cur.execute("SELECT * FROM auctions WHERE id = %s FOR UPDATE", (auction_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+    try:
+        cur = get_cur(conn)
+        # Biedingen en afloopcontroles delen dezelfde lock. Tijd controleren
+        # NA het wachten: een afgelopen veiling wordt nooit opnieuw geopend.
+        cur.execute("SELECT * FROM auctions WHERE id = %s FOR UPDATE", (auction_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+        if not domein_toegestaan(row, email):
+            raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
 
-    # Domeincontrole
-    if not domein_toegestaan(row, email):
-        conn.close()
-        raise HTTPException(status_code=403, detail="Je e-mailadres heeft geen toegang tot deze veiling")
+        cur.execute("SELECT 1 FROM bids WHERE auction_id = %s LIMIT 1", (auction_id,))
+        heeft_biedingen = cur.fetchone() is not None
+        min_bid = (row["current_price"] + row["min_increment"]) if heeft_biedingen else row["start_price"]
+        end_time = datetime.fromisoformat(row["end_time"])
+        accepted_at = nu()
+        if accepted_at >= end_time or row["status"] == "ended":
+            raise HTTPException(status_code=400, detail="De veiling is al afgelopen")
+        if amount < min_bid:
+            raise HTTPException(status_code=400, detail=f"Minimaal bod is €{min_bid:.2f}")
 
-    end_time = datetime.fromisoformat(row["end_time"])
-    if nu() > end_time:
-        conn.close()
-        raise HTTPException(status_code=400, detail="De veiling is al afgelopen")
+        extended = (end_time - accepted_at).total_seconds() <= VERLENG_GRENS_SEC
+        if extended:
+            end_time = accepted_at + timedelta(seconds=VERLENG_RESTEREND_SEC)
 
-    cur.execute("SELECT 1 FROM bids WHERE auction_id = %s LIMIT 1", (auction_id,))
-    heeft_biedingen = cur.fetchone() is not None
-    min_bid = (row["current_price"] + row["min_increment"]) if heeft_biedingen else row["start_price"]
-    if amount < min_bid:
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Minimaal bod is €{min_bid:.2f}")
+        cur.execute(
+            "INSERT INTO bids (auction_id, bidder_name, amount, timestamp, email, ip_address) VALUES (%s, %s, %s, %s, %s, %s)",
+            (auction_id, bidder_name, amount, accepted_at.isoformat(), email, get_client_ip(request))
+        )
+        cur.execute(
+            "UPDATE auctions SET current_price = %s, end_time = %s WHERE id = %s",
+            (amount, end_time.isoformat(), auction_id)
+        )
+        conn.commit()  # bod, prijs én eindtijd slagen of falen samen
+    finally:
+        conn.close()  # ook bij fouten: rollback en rij-lock vrijgeven
 
-    timestamp  = nu().isoformat()
-    ip_address = get_client_ip(request)
-    cur.execute(
-        "INSERT INTO bids (auction_id, bidder_name, amount, timestamp, email, ip_address) VALUES (%s, %s, %s, %s, %s, %s)",
-        (auction_id, bidder_name, amount, timestamp, email, ip_address)
-    )
-    cur.execute("UPDATE auctions SET current_price = %s WHERE id = %s", (amount, auction_id))
-    conn.commit()
-    conn.close()
-
-    return JSONResponse({"success": True})
+    return JSONResponse({
+        "success": True, "amount": amount, "extended": extended,
+        **tijd_payload(end_time.isoformat(), accepted_at),
+    }, headers={"Cache-Control": "no-store"})
 
 
 # ── API: bod verwijderen (admin) ──────────────────────────────────────────────

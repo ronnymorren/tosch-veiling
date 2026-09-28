@@ -157,7 +157,7 @@
           <!-- Header -->
           <div class="panel-topbar">
             <span class="panel-tag">Live biedpaneel</span>
-            <span class="panel-ver">v1.9.1</span>
+            <span class="panel-ver">v1.10.0</span>
           </div>
           <div class="panel-realtime" id="panelRealtime">Realtime</div>
           <div class="panel-kijkers" id="panelKijkers" style="display:none"></div>
@@ -185,6 +185,9 @@
               <span class="circle-sub">Bied direct mee</span>
             </div>
           </div>
+
+          <p class="code-info-box">Een geldig bod in de laatste 5 seconden zet de resterende tijd opnieuw op 10 seconden.</p>
+          <div id="verlengMelding" class="fpanel-alert fpanel-alert-success" role="status" style="display:none"></div>
 
           <!-- Huidig bod -->
           <div class="huidig-bod-blok">
@@ -279,6 +282,35 @@
     let looptijdMs = null;   // aanmaak → einde, voor de schaal van de timer-cirkel
     let countdownInterval = null;
     let alarmGegeven = false;
+    let laatsteServerTijd = -Infinity;
+    let serverBasis = 0, klokBasis = 0;
+    let verlengMeldingTimer = null;
+
+    function serverNu() {
+      return serverBasis + performance.now() - klokBasis;
+    }
+
+    function updateTijd(data, gestart) {
+      const serverTijd = Date.parse(data.server_time);
+      const nieuweEindtijd = new Date(data.end_time);
+      // Een oudere poll mag een zojuist bevestigd bod/verlenging niet terugdraaien.
+      if (!Number.isFinite(serverTijd) || !Number.isFinite(+nieuweEindtijd)
+          || serverTijd < laatsteServerTijd || (endTime && nieuweEindtijd < endTime)) return false;
+      const verlengd = endTime !== null && nieuweEindtijd > endTime;
+      laatsteServerTijd = serverTijd;
+      klokBasis = performance.now();
+      serverBasis = serverTijd + Math.max(0, klokBasis - gestart) / 2;
+      endTime = nieuweEindtijd;
+      document.getElementById('eindigOp').textContent = fmtDatumKort(endTime);
+      if (verlengd) {
+        const el = document.getElementById('verlengMelding');
+        el.textContent = 'Extra biedtijd! Een laat bod heeft de eindtijd verlengd.';
+        el.style.display = 'block';
+        clearTimeout(verlengMeldingTimer);
+        verlengMeldingTimer = setTimeout(() => el.style.display = 'none', 5000);
+      }
+      return true;
+    }
 
     window.addEventListener('load', async () => {
       if ('Notification' in window && Notification.permission === 'default') {
@@ -286,7 +318,8 @@
       }
       document.getElementById('loginEmailTekst').textContent = MIJN_EMAIL;
       try {
-        const res = await fetch(`/api/auction/${AUCTION_ID}?zichtbaar=${document.hidden ? 0 : 1}`);
+        const gestart = performance.now();
+        const res = await fetch(`/api/auction/${AUCTION_ID}?zichtbaar=${document.hidden ? 0 : 1}`, {cache: 'no-store'});
         if (res.status === 401) {
           window.location.href = '/?next=/veiling/' + AUCTION_ID;
           return;
@@ -297,13 +330,13 @@
           return;
         }
         document.getElementById('laadStatus').style.display = 'none';
-        toonVeiling(await res.json());
+        toonVeiling(await res.json(), gestart);
       } catch {
         document.getElementById('laadStatus').textContent = 'Verbindingsfout. Ververs de pagina.';
       }
     });
 
-    function toonVeiling(data) {
+    function toonVeiling(data, gestart) {
       auctionData = data;
       document.getElementById('auctionPage').style.display = 'block';
       document.title = data.title + ' – Tosch Veiling';
@@ -323,7 +356,7 @@
         `<div class="spec-rij"><span class="spec-n">${esc(s.naam)}</span><span class="spec-v">${esc(s.waarde)}</span></div>`
       ).join('');
 
-      endTime = new Date(data.end_time);
+      updateTijd(data, gestart);
       // Cirkel loopt van 100% bij aanmaken naar 0% bij einde. Oude veilingen
       // zonder created_at vallen terug op 7 dagen.
       looptijdMs = data.created_at ? endTime - new Date(data.created_at) : null;
@@ -399,11 +432,13 @@
       const btn = document.getElementById('bodBtn');
       if (btn.disabled) return;   // dubbelklik: tweede klik negeren
       btn.disabled = true;
+      const bodBedrag = currentBedrag;
       try {
+        const gestart = performance.now();
         const res = await fetch('/api/bid', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ auction_id: AUCTION_ID, amount: currentBedrag })
+          body: JSON.stringify({ auction_id: AUCTION_ID, amount: bodBedrag })
         });
         if (res.status === 403) {
           // Sessie verlopen of geen toegang — stuur terug naar login
@@ -415,10 +450,14 @@
           errEl.textContent = err.detail || 'Bod mislukt';
           errEl.style.display = 'block';
         } else {
-          okEl.textContent = '✓ Bod van ' + fmtEuro(currentBedrag) + ' geplaatst!';
+          const data = await res.json();
+          updateTijd(data, gestart);
+          updateCountdown();
+          okEl.textContent = '✓ Bod van ' + fmtEuro(bodBedrag) + ' geplaatst!';
           okEl.style.display = 'block';
           setTimeout(() => okEl.style.display = 'none', 4000);
         }
+        peilVeiling(true);
       } catch {
         errEl.textContent = 'Verbindingsfout. Probeer opnieuw.';
         errEl.style.display = 'block';
@@ -430,19 +469,21 @@
     // ── Countdown ──────────────────────────────────────────────────────────────
     function startCountdown() {
       if (countdownInterval) clearInterval(countdownInterval);
-      countdownInterval = setInterval(updateCountdown, 1000);
+      countdownInterval = setInterval(updateCountdown, 100);
       updateCountdown();
     }
 
     function updateCountdown() {
-      const diff = endTime - new Date();
+      if (auctionData?.status === 'ended') return;
+      const diff = endTime - serverNu();
       const arc  = document.getElementById('arcCircle');
       const disp = document.getElementById('countdownDisplay');
       const circ = 502.65;
 
       if (diff <= 0) {
-        clearInterval(countdownInterval);
-        disp.textContent = 'Afgelopen';
+        // Nul op de lokale klok is nog geen bevestigde uitslag. Blijf pollen:
+        // een bod kan vlak voor deze tick de eindtijd hebben verlengd.
+        disp.textContent = 'Controle…';
         arc.style.strokeDashoffset = circ;
         return;
       }
@@ -457,10 +498,11 @@
         speelAlarm();
       }
 
-      const d = Math.floor(diff / 86400000);
-      const h = Math.floor((diff % 86400000) / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
+      const seconden = Math.ceil(diff / 1000);
+      const d = Math.floor(seconden / 86400);
+      const h = Math.floor((seconden % 86400) / 3600);
+      const m = Math.floor((seconden % 3600) / 60);
+      const s = seconden % 60;
 
       disp.textContent = d > 0 ? d + 'd ' + h + 'u'
                        : h > 0 ? h + 'u ' + pad(m) + 'm'
@@ -472,6 +514,10 @@
 
     // ── Afgelopen / winnaar-scherm ─────────────────────────────────────────────
     function toonAfgelopen(winner, winnendBod, animated) {
+      clearInterval(countdownInterval);
+      document.getElementById('countdownDisplay').textContent = 'Afgelopen';
+      document.getElementById('arcCircle').style.strokeDashoffset = 502.65;
+      document.getElementById('verlengMelding').style.display = 'none';
       // Panel bijwerken
       document.getElementById('biedFormWrap').style.display = 'none';
       document.getElementById('afgelopenBanner').style.display = 'flex';
@@ -529,6 +575,7 @@
 
     // ── Polling (vervangt WebSocket — werkt ook op Vercel serverless) ────────
     let pollInterval = null;
+    let pollBezig = false, pollOpnieuw = false;
     const POLL_ACTIEF         = 3000;    // tab zichtbaar
     const POLL_VERBORGEN      = 30000;   // tab op de achtergrond: 10x minder databaseverkeer
     const POLL_EIND_ACTIEF    = 1000;    // laatste 5 minuten: elke seconde
@@ -536,7 +583,7 @@
     const EINDFASE_MS         = 5 * 60 * 1000;
 
     function eindfase() {
-      return endTime !== null && (endTime - new Date()) < EINDFASE_MS;
+      return endTime !== null && (endTime - serverNu()) < EINDFASE_MS;
     }
 
     function pollTempo() {
@@ -555,14 +602,25 @@
     document.addEventListener('visibilitychange', () => {
       if (!pollInterval) return;          // veiling afgelopen of nog niet geladen
       startPolling();
-      if (!document.hidden) peilVeiling();
+      if (!document.hidden) peilVeiling(true);
     });
 
-    async function peilVeiling() {
+    async function peilVeiling(direct = false) {
+      if (pollBezig) { if (direct) pollOpnieuw = true; return; }
+      pollBezig = true;
       try {
-        const res = await fetch(`/api/auction/${AUCTION_ID}?zichtbaar=${document.hidden ? 0 : 1}`);
-        if (!res.ok) return;
+        const gestart = performance.now();
+        const res = await fetch(`/api/auction/${AUCTION_ID}?zichtbaar=${document.hidden ? 0 : 1}`, {cache: 'no-store'});
+        if (res.status === 401) {
+          window.location.href = '/?next=/veiling/' + AUCTION_ID;
+          return;
+        }
+        if (!res.ok) throw new Error('Veiling tijdelijk niet beschikbaar');
         const data = await res.json();
+        if (!updateTijd(data, gestart)) return;
+        document.getElementById('panelRealtime').textContent =
+          eindfase() ? '🔥 Eindsprint · elke seconde bijgewerkt' : 'Realtime · elke 3 seconden bijgewerkt';
+        updateCountdown();
 
         const prevLeider = auctionData?.bids?.[0]?.bidder_name || null;
         const prevBod    = auctionData?.current_price;
@@ -597,7 +655,12 @@
           pollInterval = null;
           toonAfgelopen(data.winner, data.current_price, true);
         }
-      } catch { /* stil falen, volgende poll probeert het opnieuw */ }
+      } catch {
+        document.getElementById('panelRealtime').textContent = 'Verbinding onderbroken · opnieuw verbinden…';
+      } finally {
+        pollBezig = false;
+        if (pollOpnieuw) { pollOpnieuw = false; if (pollInterval) peilVeiling(); }
+      }
     }
 
     // ── 📢 In-page overboden banner ────────────────────────────────────────────
@@ -708,7 +771,7 @@
       return d.toLocaleDateString('nl-NL') + ', ' + d.toLocaleTimeString('nl-NL');
     }
     function fmtDatumKort(d) {
-      return d.toLocaleDateString('nl-NL') + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      return d.toLocaleString('nl-NL', {timeZone: 'Europe/Amsterdam', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'});
     }
     function pad(n) { return String(n).padStart(2, '0'); }
     // HTML-escaping voor alles wat via innerHTML de pagina in gaat (namen, specs)
@@ -719,7 +782,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.9.1 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.10.0 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>
