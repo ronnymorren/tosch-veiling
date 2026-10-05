@@ -1,0 +1,38 @@
+{
+  "client_date": "2026-10-05",
+  "read_only": true,
+  "database_tls": true,
+  "database_permissions": {
+    "rolsuper": false,
+    "rolcreatedb": true,
+    "rolcreaterole": true,
+    "rolbypassrls": true,
+    "can_create_schema": true,
+    "can_create_tables": true
+  },
+  "reported_sender": {
+    "account_exists": true,
+    "role": "participant",
+    "created_at": "2026-10-05T18:44:29.586448",
+    "feedback": [
+      {
+        "id": 8,
+        "created_at": "2026-10-05T19:42:53.505915",
+        "length": 208,
+        "html_tag_names": [
+          "b"
+        ]
+      }
+    ],
+    "bid_count": 0,
+    "audit_actions": [
+      {
+        "action": "login",
+        "n": 1
+      }
+    ]
+  },
+  "rate_limit_table_present": true,
+  "names_with_script_indicators": 0,
+  "limitations": "Targeted table check, not a review of Vercel access logs or all historical activity. HTML indicators are not proof of execution."
+}

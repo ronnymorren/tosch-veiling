@@ -81,6 +81,8 @@ parts.append('''<h2>Validatie</h2><table><tr><th>Controle</th><th>Resultaat</th>
 <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html">OWASP: CSRF en Origin-controle</a></li>
 <li><a href="https://vercel.com/docs/headers/request-headers">Vercel: doorgestuurde client-IP-headers</a></li>
 <li><a href="https://github.com/Kludex/python-multipart/security/advisories">python-multipart: upstream security-advisories</a></li></ul><h2>Bewijsbestanden</h2><ul>''')
+if live_version == 'v1.10.1':
+    parts.insert(-1, '<h2>Controle na uitrol</h2><p>Productie toont v1.10.1. De herhaalde anonieme routecontrole gaf geen 5xx-responses; de loginpagina gebruikt private, no-store. Drie ongeldige POST-verzoeken zonder e-mailadres leverden de verwachte 400 (ongeldige invoer), 403 (vreemde Origin) en 415 (text/plain). Er is geen loginmail aangevraagd. De read-only DB-nacontrole bevestigt de nieuwe limiettabel, ongewijzigde incidentmetadata en de nog te ruime DB-rechten. De tijdelijke lokale PostgreSQL-testserver is na de tests gestopt.</p>')
 for path in sorted(OUT.iterdir()):
     if path.suffix in ('.json','.txt'):
         parts.append(f'<li><a href="{esc(path.name)}">{esc(path.name)}</a></li>')

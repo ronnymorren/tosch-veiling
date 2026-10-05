@@ -1,0 +1,27 @@
+{
+  "checks": [
+    {
+      "check": "same-origin-invalid-email",
+      "status": 400,
+      "expected": 400,
+      "passed": true,
+      "cache_control": "private, no-store"
+    },
+    {
+      "check": "foreign-origin",
+      "status": 403,
+      "expected": 403,
+      "passed": true,
+      "cache_control": "private, no-store"
+    },
+    {
+      "check": "simple-content-type",
+      "status": 415,
+      "expected": 415,
+      "passed": true,
+      "cache_control": "private, no-store"
+    }
+  ],
+  "valid_email_supplied": false,
+  "expected_data_mutations": 0
+}
