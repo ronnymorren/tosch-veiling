@@ -264,7 +264,7 @@
     // ── Dupliceer: vul form voorin als ?dup=ID meegegeven ─────────────────────
     (async function laadDup() {
       const dup = new URLSearchParams(location.search).get('dup');
-      if (!dup) return;
+      if (!dup || !/^\d+$/.test(dup)) return;
       try {
         const res  = await fetch(`/api/auction/${dup}`);
         if (!res.ok) return;

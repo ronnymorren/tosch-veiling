@@ -33,6 +33,7 @@ with admin.cursor() as cur:
 admin.close()
 with patch('dotenv.load_dotenv', return_value=False), patch.dict(os.environ, {
     'DATABASE_URL': DSN, 'SESSION_SECRET': 'only-for-local-auction-tests',
+    'LOGIN_DOMEINEN': 'example.test,corp.example,tosch.nl',  # test addresses; production default is tosch.nl
 }):
     import main
 

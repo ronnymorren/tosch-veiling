@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 with patch('dotenv.load_dotenv', return_value=False), patch.dict(os.environ, {
     'SESSION_SECRET':'security-tests-only-never-production', 'DATABASE_URL':'',
+    'LOGIN_DOMEINEN':'example.test,tosch.nl',  # test addresses; production default is tosch.nl
 }), patch('psycopg2.connect', side_effect=RuntimeError('Offline tests: database disabled')):
     import main
 from fastapi.testclient import TestClient
@@ -173,6 +174,65 @@ class SecurityTests(unittest.TestCase):
              patch('security.ssl.create_default_context'),patch('security.http.client.HTTPSConnection',return_value=conn):
             with self.assertRaises(main.HTTPException): security.fetch_image('https://image.example.test/',True)
             connection.assert_called_once_with(('8.8.8.8',443),timeout=8)
+
+    def test_login_is_limited_to_allowed_domains(self):
+        client=TestClient(main.app)
+        with patch.object(main,'LOGIN_DOMEINEN',('tosch.nl',)),patch.object(main,'get_conn') as db,patch.object(main,'stuur_email') as mail:
+            for path,body in (('/api/auth/send-login-code',{'email':'outsider@example.test'}),
+                              ('/api/auth/verify-login-code',{'email':'outsider@example.test','code':'123456','naam':'X'})):
+                self.assertEqual(client.post(path,json=body).status_code,403)
+            # A session issued before the allowlist stops working immediately.
+            old=main.maak_user_token('Outsider','outsider@example.test')
+            self.assertIsNone(main.get_user(req(headers={'cookie':main.USER_COOKIE+'='+old})))
+            staff=main.maak_user_token('Staff','staff@tosch.nl')
+            self.assertEqual(main.get_user(req(headers={'cookie':main.USER_COOKIE+'='+staff}))['email'],'staff@tosch.nl')
+        db.assert_not_called(); mail.assert_not_called()
+        with patch.object(main,'LOGIN_DOMEINEN',('*',)): self.assertTrue(main.login_toegestaan('a@anything.example'))
+
+    def test_plus_addresses_share_one_mailbox_limit(self):
+        self.assertEqual(main.postvak('rm+1@tosch.nl'),'rm@tosch.nl')
+        self.assertEqual(main.postvak('rm@tosch.nl'),'rm@tosch.nl')
+
+    def test_deleting_missing_auction_never_touches_login_codes(self):
+        client=TestClient(main.app)
+        conn=Mock(); cur=Mock(); cur.fetchone.side_effect=[{'role':'manager'},None]
+        with patch.object(main,'get_conn',return_value=conn),patch.object(main,'get_cur',return_value=cur):
+            client.cookies.set(main.USER_COOKIE,main.maak_user_token('Manager','manager@example.test'))
+            self.assertEqual(client.delete('/api/auction/0').status_code,404)
+        statements=' '.join(str(call.args[0]) for call in cur.execute.call_args_list)
+        self.assertNotIn('email_verifications',statements)
+        self.assertNotIn('DELETE',statements)
+        conn.commit.assert_not_called()
+
+    def test_logout_only_by_same_origin_post(self):
+        client=TestClient(main.app,follow_redirects=False)
+        client.cookies.set(main.USER_COOKIE,main.maak_user_token('Test','test@example.test'))
+        for path in ('/uitloggen','/admin/logout'):
+            r=client.get(path)
+            self.assertEqual(r.status_code,303)
+            self.assertNotIn(main.USER_COOKIE+'=',r.headers.get('set-cookie',''))
+        self.assertEqual(client.post('/uitloggen',headers={'Origin':'https://evil.example'}).status_code,403)
+        r=client.post('/uitloggen')
+        self.assertEqual(r.status_code,200)
+        self.assertIn(main.USER_COOKIE+'=""',r.headers['set-cookie'])
+
+    def test_archive_images_load_through_proxy(self):
+        auction=dict(id=1,title='Test',image_url='https://veiling.tosch.nl/uitloggen',bid_count=0,description='',
+            current_price=100,start_price=100,min_increment=5,access_code='ABC123',
+            end_time='2026-12-01T12:00:00',is_ended=True,require_email_verification=0,allowed_domains='')
+        page=main.jinja_env.get_template('admin_overzicht.html').render(
+            auctions=[],archief=[auction],user={'naam':'Test'},is_owner=True,request=req())
+        sources=[attrs.get('src','') for tag,attrs in Tags(page).tags if tag=='img' and 'ov-img' in attrs.get('class','')]
+        self.assertTrue(sources)
+        self.assertTrue(all(src.startswith('/api/image-proxy?url=') for src in sources))
+
+    def test_closed_auction_stays_closed_when_clock_repeats_an_hour(self):
+        from datetime import datetime
+        row=dict(notified=1,status='active',end_time='2026-10-25T02:30:00')
+        self.assertTrue(main.is_afgelopen(row,datetime(2026,10,25,2,10)))
+        row['notified']=0
+        self.assertFalse(main.is_afgelopen(row,datetime(2026,10,25,2,10)))
+        self.assertTrue(main.is_afgelopen(row,datetime(2026,10,25,2,30)))
 
     def test_image_fetch_rejects_html_and_oversized_response(self):
         for content,status in ((b'<html>bad</html>',400),(b'\x89PNG\r\n\x1a\n'+b'x'*security.MAX_IMAGE_BYTES,413)):

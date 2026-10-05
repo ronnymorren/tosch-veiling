@@ -119,6 +119,79 @@ class AuthSecurityTests(unittest.TestCase):
         conn.close()
         self.assertEqual(client.get('/admin').status_code,303)
 
+    def manager(self):
+        with fixture.connect() as conn, conn.cursor() as cur:
+            cur.execute('INSERT INTO users (email,naam,created_at,role) VALUES (%s,%s,%s,%s)',
+                        ('alice@example.test','Alice',fixture.BASE.isoformat(),'manager'))
+        conn.close()
+        client=TestClient(main.app,follow_redirects=False)
+        client.cookies.set(main.USER_COOKIE,main.maak_user_token('Alice','alice@example.test'))
+        return client
+
+    def audit(self):
+        with fixture.connect() as conn, conn.cursor() as cur:
+            cur.execute('SELECT action,target,actor_email FROM admin_audit ORDER BY id')
+            rows=cur.fetchall()
+        conn.close()
+        return rows
+
+    def test_plus_addresses_cannot_bypass_the_mailbox_limit(self):
+        for i in range(main.LOGIN_MAX_CODES):
+            self.assertEqual(invoke(main.send_login_code,{'email':f'alice+{i}@example.test'})[0],200)
+        self.assertEqual(invoke(main.send_login_code,{'email':'alice+x@example.test'})[0],429)
+        self.assertEqual(invoke(main.send_login_code,{'email':'alice@example.test'})[0],429)
+        self.assertEqual(self.mail.call_count,main.LOGIN_MAX_CODES)
+
+    def test_deleting_auction_zero_keeps_login_codes_and_limits(self):
+        client=self.manager()
+        self.code()
+        self.assertEqual(client.delete('/api/auction/0').status_code,404)
+        self.assertEqual(client.delete('/api/auction/999999').status_code,404)
+        with fixture.connect() as conn, conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM email_verifications WHERE auction_id=0')
+            self.assertEqual(cur.fetchone()[0],1)
+        conn.close()
+        self.assertEqual(invoke(main.verify_login_code,{'email':'alice@example.test','code':'123456','naam':'Alice'})[0],200)
+
+    def test_manager_bid_removal_and_archiving_are_audited(self):
+        client=self.manager()
+        aid=fixture.ExtensionTests().auction(seconds=60)
+        self.assertEqual(fixture.bid(aid,email='bob@example.test')[0],200)
+        with fixture.connect() as conn, conn.cursor() as cur:
+            cur.execute('SELECT id FROM bids WHERE auction_id=%s',(aid,))
+            bid_id=cur.fetchone()[0]
+        conn.close()
+        self.assertEqual(client.delete(f'/api/bid/{bid_id}').status_code,200)
+        self.assertEqual(client.post(f'/api/auction/{aid}/archive').status_code,200)
+        self.assertEqual(client.post(f'/api/auction/{aid}/unarchive').status_code,200)
+        self.assertEqual(client.post('/api/auction/999999/archive').status_code,404)
+        self.assertEqual(client.post('/api/auction/999999/unarchive').status_code,404)
+        rows=self.audit()
+        self.assertEqual([r[0] for r in rows],['bod_verwijderd','veiling_gearchiveerd','veiling_hersteld'])
+        self.assertIn('bob@example.test',rows[0][1])
+        self.assertIn(f'veiling #{aid}',rows[0][1])
+        self.assertTrue(all(r[2]=='alice@example.test' for r in rows))
+
+    def test_archived_or_closed_auction_refuses_bids(self):
+        archived=fixture.ExtensionTests().auction(seconds=60)
+        closed=fixture.ExtensionTests().auction(seconds=60)
+        with fixture.connect() as conn, conn.cursor() as cur:
+            cur.execute('UPDATE auctions SET archived=1 WHERE id=%s',(archived,))
+            cur.execute('UPDATE auctions SET notified=1 WHERE id=%s',(closed,))  # clock repeats an hour after closing
+        conn.close()
+        self.assertEqual(fixture.bid(archived)[0],400)
+        self.assertEqual(fixture.bid(closed)[0],400)
+        request=fixture.request()
+        self.assertEqual(json.loads(asyncio.run(main.get_auction(closed,request)).body)['status'],'ended')
+
+    def test_bid_ceiling_blocks_lockout_bids(self):
+        aid=fixture.ExtensionTests().auction(seconds=60)  # start 100, step 5
+        self.assertEqual(fixture.bid(aid,10000000)[0],400)
+        self.assertEqual(fixture.bid(aid,1100.01)[0],400)
+        self.assertEqual(fixture.bid(aid,1100)[0],200)       # first bid: max(10 x 100, 100 + 1000)
+        self.assertEqual(fixture.bid(aid,11050.01)[0],400)   # next minimum 1105: max(11050, 2105)
+        self.assertEqual(fixture.bid(aid,1105)[0],200)
+
     def test_same_display_name_does_not_make_other_bidder_winner(self):
         aid=fixture.ExtensionTests().auction(seconds=3)
         fixture.bid(aid,email='alice@example.test')

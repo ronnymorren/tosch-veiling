@@ -52,7 +52,7 @@
     <div id="naam-display" class="gear-footer">
       <span class="gear-naam" title="Klik om naam te wijzigen"
             onclick="naamBewerken(event)">👋 <span id="naam-tekst">{{ user.naam }}</span> ✏️</span>
-      <a href="/uitloggen" class="gear-uit" title="Uitloggen">🚪</a>
+      <a href="#" class="gear-uit" title="Uitloggen" onclick="uitloggen(event)">🚪</a>
     </div>
     <div id="naam-edit" class="gear-naam-edit">
       <input id="naam-input" type="text" value="{{ user.naam }}" maxlength="80"
@@ -61,7 +61,7 @@
       <button class="btn btn-ghost btn-sm" onclick="naamAnnuleren()" title="Annuleren">✕</button>
     </div>
     {% else %}
-    <a href="/uitloggen" style="color:var(--gray-400)">🚪 Uitloggen</a>
+    <a href="#" style="color:var(--gray-400)" onclick="uitloggen(event)">🚪 Uitloggen</a>
     {% endif %}
   </div>
 </div>
@@ -77,6 +77,12 @@
       naamAnnuleren();
     }
   });
+  // Uitloggen is een POST: een losse link of afbeelding kan niemand ongevraagd uitloggen
+  async function uitloggen(e) {
+    e.preventDefault();
+    try { await fetch('/uitloggen', { method: 'POST' }); } catch { /* daarna hoe dan ook naar de inlogpagina */ }
+    window.location.href = '/';
+  }
   function naamBewerken(e) {
     document.getElementById('naam-display').style.display = 'none';
     document.getElementById('naam-edit').style.display = 'flex';

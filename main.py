@@ -60,12 +60,36 @@ LOGIN_MAX_CODES    = 3
 LOGIN_MAX_POGINGEN = 5
 LOGIN_MAX_CODES_PER_IP = 60  # allow colleagues sharing one office internet address
 
+# Alleen deze e-maildomeinen mogen inloggen (env LOGIN_DOMEINEN, komma-gescheiden).
+# Niet gezet of leeg = tosch.nl; "*" = iedereen met een geverifieerd adres.
+LOGIN_DOMEINEN = tuple(d.strip().lower() for d in (os.getenv("LOGIN_DOMEINEN") or "tosch.nl").split(",") if d.strip())
+GEEN_LOGIN_TEKST = "Dit e-mailadres heeft geen toegang tot Tosch Veiling. Gebruik je zakelijke e-mailadres."
+
+def login_toegestaan(email: str) -> bool:
+    return "*" in LOGIN_DOMEINEN or email.rsplit("@", 1)[-1].lower() in LOGIN_DOMEINEN
+
+def postvak(email: str) -> str:
+    """Adres zonder +tag: naam+1@ en naam+2@ komen in dezelfde mailbox uit."""
+    lokaal, _, domein = email.partition("@")
+    return lokaal.split("+", 1)[0] + "@" + domein
+
 # Kijkers: iemand telt mee als zijn zichtbare tab in de laatste N seconden gepolld heeft
 KIJKERS_VENSTER_SEC = 15
 
 # Een geaccepteerd bod in de laatste 5 seconden geeft opnieuw 10 seconden.
 VERLENG_GRENS_SEC = 5
 VERLENG_RESTEREND_SEC = 10
+
+# Bod-plafond: hoogstens 10x het minimale bod, of € 1.000 erboven als dat meer is.
+# Vangt typefouten en voorkomt dat één bod een veiling op slot zet.
+BOD_MAX_FACTOR = 10
+BOD_MAX_SPRONG = 1000
+
+
+def is_afgelopen(row, now: datetime) -> bool:
+    """Eenmaal afgesloten (notified) blijft afgesloten, ook als de klok een uur
+    terug gaat bij het ingaan van de wintertijd."""
+    return bool(row.get("notified")) or row["status"] == "ended" or now >= datetime.fromisoformat(row["end_time"])
 
 
 def tijd_payload(end_time: str, server_now: datetime) -> dict:
@@ -182,6 +206,8 @@ def get_user(request: Request) -> dict | None:
         age = int(time.time()) - int(payload["ts"])
         if age > USER_TTL or age < -60:
             return None
+        if not isinstance(payload["email"], str) or not login_toegestaan(payload["email"]):
+            return None  # domein niet (meer) toegestaan: bestaande sessie vervalt direct
         return {"naam": payload["naam"], "email": payload["email"], "ts": int(payload["ts"])}
     except Exception:
         return None
@@ -638,7 +664,7 @@ async def veilingen_page(request: Request):
     auctions = []
     for r in rows:
         d = dict(r)
-        d["is_ended"] = now >= datetime.fromisoformat(d["end_time"]) or d["status"] == "ended"
+        d["is_ended"] = is_afgelopen(d, now)
         d["end_time"] = datetime.fromisoformat(d["end_time"]).replace(tzinfo=AMS).isoformat()
         allowed_raw = (d.get("allowed_domains") or "").strip()
         if allowed_raw:
@@ -668,11 +694,19 @@ async def veilingen_page(request: Request):
     })
 
 
-@app.get("/uitloggen")
+@app.post("/uitloggen")
 async def uitloggen():
-    resp = RedirectResponse(url="/", status_code=303)
+    """Uitloggen is een POST: een GET (link, <img>, fetch met gemanipuleerd pad)
+    mag niemand ongevraagd uitloggen. De middleware controleert de Origin."""
+    resp = JSONResponse({"ok": True})
     resp.delete_cookie(USER_COOKIE)
+    resp.delete_cookie(SESSION_COOKIE)
     return resp
+
+@app.get("/uitloggen")
+async def uitloggen_oud():
+    # Oude link uit een nog open tabblad: niet uitloggen, alleen terug naar de site.
+    return RedirectResponse(url="/", status_code=303)
 
 
 @app.post("/api/profiel/naam")
@@ -918,10 +952,7 @@ async def admin_login_post_redirect():
 
 @app.get("/admin/logout")
 async def admin_logout():
-    resp = RedirectResponse(url="/", status_code=303)
-    resp.delete_cookie(USER_COOKIE)
-    resp.delete_cookie(SESSION_COOKIE)
-    return resp
+    return RedirectResponse(url="/", status_code=303)  # uitloggen gaat via POST /uitloggen
 
 
 # ── Admin: pagina's (cookie-beschermd) ───────────────────────────────────────
@@ -1212,9 +1243,8 @@ async def get_auction(auction_id: int, request: Request, zichtbaar: int | None =
         )
         bids = cur.fetchall()
 
-        end_time  = datetime.fromisoformat(row["end_time"])
         server_now = nu()
-        is_ended  = server_now >= end_time or row["status"] == "ended"
+        is_ended  = is_afgelopen(row, server_now)
         req_email = bool(row["require_email_verification"])
 
         winner = None
@@ -1293,11 +1323,14 @@ async def get_auction(auction_id: int, request: Request, zichtbaar: int | None =
 async def send_login_code(request: Request):
     data = await request.json()
     email = valid_email(data.get("email"))
+    if not login_toegestaan(email):
+        raise HTTPException(403, GEEN_LOGIN_TEKST)
     conn = get_conn()
     try:
         cur = get_cur(conn)
         login_lock(cur, email)
         request_limit(cur, 'login-ip', get_client_ip(request), LOGIN_MAX_CODES_PER_IP)
+        request_limit(cur, 'login-postvak', postvak(email), LOGIN_MAX_CODES)  # +tags delen één limiet
         cur.execute("SELECT naam FROM users WHERE email = %s", (email,))
         user_row = cur.fetchone()
         known = user_row is not None
@@ -1305,7 +1338,7 @@ async def send_login_code(request: Request):
         code = "".join(secrets.choice("0123456789") for _ in range(6))
         now_iso = nu().isoformat()
         expires_at = (nu() + timedelta(minutes=10)).isoformat()
-        cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = 0 AND expires_at < %s", (email, now_iso))
+        cur.execute("DELETE FROM email_verifications WHERE auction_id = 0 AND expires_at < %s", (now_iso,))  # verlopen codes van iedereen opruimen
         cur.execute("SELECT COUNT(*) AS n FROM email_verifications WHERE email = %s AND auction_id = 0 AND expires_at >= %s", (email, now_iso))
         if cur.fetchone()["n"] >= LOGIN_MAX_CODES:
             raise HTTPException(429, "Te veel codes aangevraagd. Wacht 10 minuten en probeer het opnieuw.")
@@ -1351,6 +1384,8 @@ async def send_login_code(request: Request):
 async def verify_login_code(request: Request):
     data = await request.json()
     email = valid_email(data.get("email"))
+    if not login_toegestaan(email):
+        raise HTTPException(403, GEEN_LOGIN_TEKST)
     code = data.get("code", "")
     naam_nieuw = data.get("naam", "")
     if not isinstance(code, str) or not re.fullmatch(r"[0-9]{6}", code):
@@ -1368,9 +1403,7 @@ async def verify_login_code(request: Request):
             raise HTTPException(400, "Geen geldige code gevonden. Vraag een nieuwe code aan.")
         if (row.get("pogingen") or 0) >= LOGIN_MAX_POGINGEN:
             raise HTTPException(400, "Te veel foute pogingen. Vraag een nieuwe code aan.")
-        # Existing six-digit codes expire naturally within ten minutes of rollout.
-        expected = code if len(row["code"]) == 6 else code_digest(email, code)
-        if not hmac.compare_digest(row["code"], expected):
+        if not hmac.compare_digest(row["code"], code_digest(email, code)):
             pogingen = (row.get("pogingen") or 0) + 1
             over = LOGIN_MAX_POGINGEN - pogingen
             cur.execute("UPDATE email_verifications SET pogingen = %s, used = CASE WHEN %s <= 0 THEN 1 ELSE used END WHERE id = %s", (pogingen,over,row["id"]))
@@ -1435,10 +1468,15 @@ async def place_bid(request: Request):
         min_bid = round(row["current_price"] + row["min_increment"], 2) if heeft_biedingen else row["start_price"]
         end_time = datetime.fromisoformat(row["end_time"])
         accepted_at = nu()
-        if accepted_at >= end_time or row["status"] == "ended":
+        if is_afgelopen(row, accepted_at):
             raise HTTPException(status_code=400, detail="De veiling is al afgelopen")
+        if row.get("archived"):
+            raise HTTPException(status_code=400, detail="Deze veiling is gearchiveerd")
         if amount < min_bid:
             raise HTTPException(status_code=400, detail=f"Minimaal bod is €{min_bid:.2f}")
+        max_bod = round(max(min_bid * BOD_MAX_FACTOR, min_bid + BOD_MAX_SPRONG), 2)
+        if amount > max_bod:
+            raise HTTPException(status_code=400, detail=f"Bod is te hoog: maximaal €{max_bod:.2f} per bod. Controleer het bedrag.")
 
         extended = (end_time - accepted_at).total_seconds() <= VERLENG_GRENS_SEC
         if extended:
@@ -1468,7 +1506,8 @@ async def place_bid(request: Request):
 async def delete_bid(bid_id: int, request: Request):
     conn = get_conn()
     cur  = get_cur(conn)
-    if not rol_check(request, cur, ADMIN_ROLLEN):
+    actor = rol_check(request, cur, ADMIN_ROLLEN)
+    if not actor:
         conn.close()
         raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("SELECT * FROM bids WHERE id = %s", (bid_id,))
@@ -1485,6 +1524,10 @@ async def delete_bid(bid_id: int, request: Request):
     top = cur.fetchone()
     new_price = top["top"] if top["top"] is not None else auction["start_price"]
     cur.execute("UPDATE auctions SET current_price = %s WHERE id = %s", (new_price, auction_id))
+    bedrag = f"{bid['amount']:.2f}".replace(".", ",")
+    log_audit(actor["email"], "bod_verwijderd",
+              target=f"veiling #{auction_id}: {bid['bidder_name']} ({bid.get('email') or 'onbekend'}) € {bedrag}",
+              ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
 
@@ -1503,13 +1546,16 @@ async def delete_auction(auction_id: int, request: Request):
         raise HTTPException(status_code=403, detail="Geen toegang")
     cur.execute("SELECT title FROM auctions WHERE id = %s FOR UPDATE", (auction_id,))
     auction_row = cur.fetchone()
+    if not auction_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+    # email_verifications blijft hier bewust buiten: auction_id 0 is de schildwacht
+    # voor inlogcodes, en codes per veiling bestaan niet meer.
     cur.execute("DELETE FROM bids WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM auction_presence WHERE auction_id = %s", (auction_id,))
-    cur.execute("DELETE FROM email_verifications WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM auctions WHERE id = %s", (auction_id,))
-    if auction_row:
-        log_audit(actor["email"], "veiling_verwijderd", target=auction_row["title"],
-                  ip=get_client_ip(request), cur=cur)
+    log_audit(actor["email"], "veiling_verwijderd", target=auction_row["title"],
+              ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True})
@@ -1519,10 +1565,16 @@ async def delete_auction(auction_id: int, request: Request):
 async def archive_auction(auction_id: int, request: Request):
     conn = get_conn()
     cur  = get_cur(conn)
-    if not rol_check(request, cur, ADMIN_ROLLEN):
+    actor = rol_check(request, cur, ADMIN_ROLLEN)
+    if not actor:
         conn.close()
         raise HTTPException(status_code=403, detail="Geen toegang")
-    cur.execute("UPDATE auctions SET archived = 1 WHERE id = %s", (auction_id,))
+    cur.execute("UPDATE auctions SET archived = 1 WHERE id = %s RETURNING title", (auction_id,))
+    rij = cur.fetchone()
+    if not rij:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+    log_audit(actor["email"], "veiling_gearchiveerd", target=rij["title"], ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True})
@@ -1531,10 +1583,16 @@ async def archive_auction(auction_id: int, request: Request):
 async def unarchive_auction(auction_id: int, request: Request):
     conn = get_conn()
     cur  = get_cur(conn)
-    if not rol_check(request, cur, ADMIN_ROLLEN):
+    actor = rol_check(request, cur, ADMIN_ROLLEN)
+    if not actor:
         conn.close()
         raise HTTPException(status_code=403, detail="Geen toegang")
-    cur.execute("UPDATE auctions SET archived = 0 WHERE id = %s", (auction_id,))
+    cur.execute("UPDATE auctions SET archived = 0 WHERE id = %s RETURNING title", (auction_id,))
+    rij = cur.fetchone()
+    if not rij:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+    log_audit(actor["email"], "veiling_hersteld", target=rij["title"], ip=get_client_ip(request), cur=cur)
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True})
@@ -1601,6 +1659,8 @@ async def voeg_manager_toe(request: Request):
         raise HTTPException(status_code=400, detail="Vul een naam in")
     if email in EIGENAREN:
         raise HTTPException(status_code=400, detail="Dit e-mailadres is een eigenaar en kan niet als beheerder worden toegevoegd")
+    if not login_toegestaan(email):
+        raise HTTPException(status_code=400, detail="Met dit e-maildomein kan niet worden ingelogd")
 
     conn = get_conn()
     cur  = get_cur(conn)
@@ -1658,7 +1718,12 @@ async def admin_audit(request: Request):
     if haal_rol(cur, user["email"]) != "owner":
         conn.close()
         return RedirectResponse(url="/?next=/admin/audit", status_code=303)
-    cur.execute("SELECT * FROM admin_audit ORDER BY created_at DESC LIMIT 500")
+    cur.execute("""
+        (SELECT * FROM admin_audit WHERE action <> 'login' ORDER BY created_at DESC LIMIT 500)
+        UNION ALL
+        (SELECT * FROM admin_audit WHERE action = 'login' ORDER BY created_at DESC LIMIT 500)
+        ORDER BY created_at DESC
+    """)
     logs = [dict(r) for r in cur.fetchall()]
     conn.close()
     return templates.TemplateResponse(request, "admin_audit.html",

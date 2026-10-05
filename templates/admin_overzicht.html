@@ -110,7 +110,7 @@
         <div class="overzicht-card card-archived" id="card-{{ a.id }}">
 
           {% if a.image_url %}
-          <img src="{{ a.image_url }}" alt="{{ a.title }}" class="ov-img" style="opacity:.5">
+          <img src="/api/image-proxy?url={{ a.image_url | urlencode }}" alt="{{ a.title }}" class="ov-img" style="opacity:.5" loading="lazy">
           {% endif %}
 
           <div class="ov-body">
@@ -223,7 +223,7 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.10.1 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.10.2 · Samen werken aan overmorgen</span>
   </footer>
 
   <script>
