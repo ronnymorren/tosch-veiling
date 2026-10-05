@@ -55,12 +55,11 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.10.0 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.10.1 · Samen werken aan overmorgen</span>
   </footer>
 
   <script>
-    const params    = new URLSearchParams(location.search);
-    const nextUrl   = params.get('next') || '/veilingen';
+    const nextUrl   = {{ next_url | tojson }};
     let   isNewUser = false;
 
     document.getElementById('loginEmail').addEventListener('keydown', e => {

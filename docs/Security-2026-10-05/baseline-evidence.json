@@ -1,0 +1,38 @@
+{
+  "baseline_commit": "29db7a6",
+  "scope": "disposable localhost PostgreSQL, synthetic data, no emails",
+  "correct_code_replay": {
+    "requests": 8,
+    "successful_responses": 8,
+    "stored_attempts": [
+      0
+    ]
+  },
+  "wrong_attempt_lost_updates": {
+    "requests": 8,
+    "successful_responses": 0,
+    "stored_attempts": [
+      1
+    ]
+  },
+  "code_request_limit_bypass": {
+    "requests": 8,
+    "successful_responses": 8,
+    "stored_attempts": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "image_proxy": {
+    "private_target_reached_fetch_boundary": true,
+    "returned_content_type": "text/html",
+    "status": 200,
+    "network_was_mocked": true
+  }
+}

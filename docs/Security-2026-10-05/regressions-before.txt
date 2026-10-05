@@ -1,0 +1,136 @@
+C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+test_admin_title_not_interpolated_in_javascript (__main__.SecurityTests.test_admin_title_not_interpolated_in_javascript) ... FAIL
+test_dynamic_responses_not_publicly_cached (__main__.SecurityTests.test_dynamic_responses_not_publicly_cached) ... FAIL
+test_feedback_text_is_not_html (__main__.SecurityTests.test_feedback_text_is_not_html) ... ok
+test_home_uses_server_validated_redirect (__main__.SecurityTests.test_home_uses_server_validated_redirect) ... FAIL
+test_manager_email_not_interpolated_in_javascript (__main__.SecurityTests.test_manager_email_not_interpolated_in_javascript) ... FAIL
+test_mutation_rejects_cross_origin (__main__.SecurityTests.test_mutation_rejects_cross_origin) ... FAIL
+test_mutation_rejects_simple_content_type (__main__.SecurityTests.test_mutation_rejects_simple_content_type) ... FAIL
+test_profile_cookie_is_secure_on_https (__main__.SecurityTests.test_profile_cookie_is_secure_on_https) ... FAIL
+test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) ...
+  test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/\\example.test') ... FAIL
+  test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/\n/example.test') ... FAIL
+  test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/%5cexample.test') ... FAIL
+  test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/%2fexample.test') ... FAIL
+test_session_tampering_rejected (__main__.SecurityTests.test_session_tampering_rejected) ... ok
+test_unauthenticated_sensitive_endpoints (__main__.SecurityTests.test_unauthenticated_sensitive_endpoints) ... ok
+test_winner_email_escapes_user_name_and_title (__main__.SecurityTests.test_winner_email_escapes_user_name_and_title) ... FAIL
+
+======================================================================
+FAIL: test_admin_title_not_interpolated_in_javascript (__main__.SecurityTests.test_admin_title_not_interpolated_in_javascript)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 62, in test_admin_title_not_interpolated_in_javascript
+    self.assertFalse(any(payload in handler for handler in handlers))
+AssertionError: True is not false
+
+======================================================================
+FAIL: test_dynamic_responses_not_publicly_cached (__main__.SecurityTests.test_dynamic_responses_not_publicly_cached)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 114, in test_dynamic_responses_not_publicly_cached
+    self.assertIn('no-store',r.headers.get('cache-control',''))
+AssertionError: 'no-store' not found in ''
+
+======================================================================
+FAIL: test_home_uses_server_validated_redirect (__main__.SecurityTests.test_home_uses_server_validated_redirect)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 80, in test_home_uses_server_validated_redirect
+    self.assertNotIn("params.get('next')",source)
+AssertionError: "params.get('next')" unexpectedly found in '<!DOCTYPE html>\n<html lang="nl">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>Tosch Veiling � Inloggen</title>\n  <link rel="stylesheet" href="/static/style.css">\n  <link rel="icon" type="image/png" href="/static/favicon.png">\n</head>\n<body>\n  <div class="page-center">\n    <div class="card" style="max-width:420px;width:100%">\n      <img src="/static/tosch-logo.png" alt="Tosch" style="height:48px;margin-bottom:1rem">\n      <h1>Tosch Veiling</h1>\n\n      <!-- Stap 1: e-mailadres -->\n      <div id="stapEmail">\n        <p class="subtitle">Vul je e-mailadres in om deel te nemen</p>\n        <div class="form-group">\n          <label>E-mailadres</label>\n          <input id="loginEmail" type="email" placeholder="naam@bedrijf.nl" autofocus>\n        </div>\n        <div id="errorEmail" class="alert alert-error" style="display:none"></div>\n        <button class="btn btn-primary btn-full" id="stuurBtn" onclick="stuurCode()">\n          Verificatiecode versturen \u2192\n        </button>\n      </div>\n\n      <!-- Stap 2: code (+ naam indien nieuwe gebruiker) -->\n      <div id="stapCode" style="display:none">\n        <p class="subtitle" id="codeSubtitel"></p>\n\n        <!-- Naam invoeren: alleen voor nieuwe gebruikers -->\n        <div id="naamGroup" class="form-group" style="display:none;margin-top:1rem">\n          <label>Je naam</label>\n          <input id="loginNaam" type="text" placeholder="Jan Jansen">\n        </div>\n\n        <div class="form-group" style="margin-top:.75rem">\n          <label>Verificatiecode</label>\n          <input id="loginCode" type="text" inputmode="numeric" placeholder="123456" maxlength="6"\n                 style="letter-spacing:10px;font-size:1.5rem;text-align:center;font-weight:800">\n        </div>\n        <div id="errorCode" class="alert alert-error" style="display:none"></div>\n        <button class="btn btn-primary btn-full" id="verifBtn" onclick="controleerCode()">\n          Deelnemen \u2192\n        </button>\n        <button class="btn btn-ghost btn-full" style="margin-top:.5rem" onclick="nieuweCode()">\n          \u2190 Andere code aanvragen\n        </button>\n      </div>\n\n    </div>\n  </div>\n\n  <footer class="site-footer">\n    <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">\n    <span>Tosch Veiling � v1.10.0 � Samen werken aan overmorgen</span>\n  </footer>\n\n  <script>\n    const params    = new URLSearchParams(location.search);\n    const nextUrl   = params.get(\'next\') || \'/veilingen\';\n    let   isNewUser = false;\n\n    document.getElementById(\'loginEmail\').addEventListener(\'keydown\', e => {\n      if (e.key === \'Enter\') stuurCode();\n    });\n\n    async function stuurCode() {\n      const email = document.getElementById(\'loginEmail\').value.trim().toLowerCase();\n      const errEl = document.getElementById(\'errorEmail\');\n      errEl.style.display = \'none\';\n\n      if (!email || !email.includes(\'@\')) return toonFout(\'email\', \'Vul een geldig e-mailadres in\');\n\n      const btn = document.getElementById(\'stuurBtn\');\n      btn.textContent = \'Versturen...\'; btn.disabled = true;\n\n      try {\n        const res = await fetch(\'/api/auth/send-login-code\', {\n          method: \'POST\',\n          headers: {\'Content-Type\': \'application/json\'},\n          body: JSON.stringify({ email })\n        });\n        if (!res.ok) {\n          const err = await res.json();\n          return toonFout(\'email\', err.detail || \'Versturen mislukt\');\n        }\n        const data = await res.json();\n        isNewUser = !data.known;\n\n        if (data.known) {\n          document.getElementById(\'codeSubtitel\').textContent =\n            `Welkom terug! We stuurden een code naar ${email}.`;\n          document.getElementById(\'naamGroup\').style.display = \'none\';\n        } else {\n          document.getElementById(\'codeSubtitel\').textContent =\n            `We stuurden een code naar ${email}. Vul ook je naam in.`;\n          document.getElementById(\'naamGroup\').style.display = \'block\';\n          setTimeout(() => document.getElementById(\'loginNaam\').focus(), 50);\n        }\n\n        document.getElementById(\'stapEmail\').style.display = \'none\';\n        document.getElementById(\'stapCode\').style.display  = \'block\';\n        if (!isNewUser) document.getElementById(\'loginCode\').focus();\n      } catch {\n        toonFout(\'email\', \'Verbindingsfout. Probeer opnieuw.\');\n      } finally {\n        btn.textContent = \'Verificatiecode versturen \u2192\'; btn.disabled = false;\n      }\n    }\n\n    document.addEventListener(\'keydown\', e => {\n      if (e.key === \'Enter\' && document.getElementById(\'stapCode\').style.display !== \'none\') {\n        const focus = document.activeElement;\n        if (focus && (focus.id === \'loginCode\' || focus.id === \'loginNaam\')) controleerCode();\n      }\n    });\n\n    async function controleerCode() {\n      const email = document.getElementById(\'loginEmail\').value.trim().toLowerCase();\n      const code  = document.getElementById(\'loginCode\').value.trim();\n      const naam  = document.getElementById(\'loginNaam\').value.trim();\n\n      if (isNewUser && !naam) return toonFout(\'code\', \'Vul je naam in\');\n      if (code.length < 6)   return toonFout(\'code\', \'Voer de 6-cijferige code in\');\n\n      const btn = document.getElementById(\'verifBtn\');\n      btn.textContent = \'Bezig...\'; btn.disabled = true;\n\n      try {\n        const body = { email, code };\n        if (isNewUser) body.naam = naam;\n\n        const res = await fetch(\'/api/auth/verify-login-code\', {\n          method: \'POST\',\n          headers: {\'Content-Type\': \'application/json\'},\n          body: JSON.stringify(body)\n        });\n        if (!res.ok) {\n          const err = await res.json();\n          return toonFout(\'code\', err.detail || \'Verificatie mislukt\');\n        }\n        const data = await res.json();\n        window.location.href = nextUrl;\n      } catch {\n        toonFout(\'code\', \'Verbindingsfout. Probeer opnieuw.\');\n      } finally {\n        btn.textContent = \'Deelnemen \u2192\'; btn.disabled = false;\n      }\n    }\n\n    function nieuweCode() {\n      document.getElementById(\'stapCode\').style.display  = \'none\';\n      document.getElementById(\'stapEmail\').style.display = \'block\';\n      document.getElementById(\'loginCode\').value = \'\';\n      document.getElementById(\'errorCode\').style.display = \'none\';\n    }\n\n    function toonFout(stap, msg) {\n      const id = stap === \'email\' ? \'errorEmail\' : \'errorCode\';\n      const el = document.getElementById(id);\n      el.textContent = msg; el.style.display = \'block\';\n    }\n  </script>\n</body>\n</html>\n'
+
+======================================================================
+FAIL: test_manager_email_not_interpolated_in_javascript (__main__.SecurityTests.test_manager_email_not_interpolated_in_javascript)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 70, in test_manager_email_not_interpolated_in_javascript
+    self.assertFalse(any(payload in handler for handler in handlers))
+AssertionError: True is not false
+
+======================================================================
+FAIL: test_mutation_rejects_cross_origin (__main__.SecurityTests.test_mutation_rejects_cross_origin)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 99, in test_mutation_rejects_cross_origin
+    self.assertEqual(r.status_code,403)
+AssertionError: 200 != 403
+
+======================================================================
+FAIL: test_mutation_rejects_simple_content_type (__main__.SecurityTests.test_mutation_rejects_simple_content_type)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 105, in test_mutation_rejects_simple_content_type
+    self.assertEqual(r.status_code,415)
+AssertionError: 400 != 415
+
+======================================================================
+FAIL: test_profile_cookie_is_secure_on_https (__main__.SecurityTests.test_profile_cookie_is_secure_on_https)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 110, in test_profile_cookie_is_secure_on_https
+    self.assertIn('Secure',response.headers['set-cookie'])
+AssertionError: 'Secure' not found in 'tosch_user=ZXlKdVlXRnRJam9pVkdWemRDSXNJbVZ0WVdsc0lqb2lkR1Z6ZEVCbGVHRnRjR3hsTG5SbGMzUWlMQ0owY3lJNklqRTNPVEV5TWpZMk56UWlmUS5jMmNlNjkwYjllMTM5ZDUzM2M0MDdjNzA; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax'
+
+======================================================================
+FAIL: test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/\\example.test')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 75, in test_redirect_rejects_external_and_backslash_paths
+    with self.subTest(url=url): self.assertEqual(main.valideer_next(url,'/veilingen'),'/veilingen')
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '/\\example.test' != '/veilingen'
+- /\example.test
++ /veilingen
+
+
+======================================================================
+FAIL: test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/\n/example.test')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 75, in test_redirect_rejects_external_and_backslash_paths
+    with self.subTest(url=url): self.assertEqual(main.valideer_next(url,'/veilingen'),'/veilingen')
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '/\n/example.test' != '/veilingen'
++ /veilingen
+- /
+- /example.test
+
+
+======================================================================
+FAIL: test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/%5cexample.test')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 75, in test_redirect_rejects_external_and_backslash_paths
+    with self.subTest(url=url): self.assertEqual(main.valideer_next(url,'/veilingen'),'/veilingen')
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '/%5cexample.test' != '/veilingen'
+- /%5cexample.test
++ /veilingen
+
+
+======================================================================
+FAIL: test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) (url='/%2fexample.test')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 75, in test_redirect_rejects_external_and_backslash_paths
+    with self.subTest(url=url): self.assertEqual(main.valideer_next(url,'/veilingen'),'/veilingen')
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '/%2fexample.test' != '/veilingen'
+- /%2fexample.test
++ /veilingen
+
+
+======================================================================
+FAIL: test_winner_email_escapes_user_name_and_title (__main__.SecurityTests.test_winner_email_escapes_user_name_and_title)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\tests\test_security.py", line 51, in test_winner_email_escapes_user_name_and_title
+    self.assertNotIn(payload,body)
+AssertionError: '<b data-audit="injected">Test</b>' unexpectedly found in '\n    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">\n      <div style="background:#FF6F00;padding:20px 24px;border-radius:12px 12px 0 0">\n        <h1 style="color:#fff;margin:0;font-size:1.3rem;font-weight:800">Tosch Veiling</h1>\n      </div>\n      <div style="background:#fff;padding:32px 24px;border:1px solid #e5e7eb;border-radius:0 0 12px 12px">\n        <p style="color:#374151;margin:0 0 24px">Gefeliciteerd, <b data-audit="injected">Test</b>!<br><br>Je hebt de veiling <strong><b data-audit="injected">Test</b></strong> gewonnen met het hoogste bod van <strong>�\xa0100,00</strong>.</p>\n        <p style="color:#6b7280;font-size:.875rem;margin:0">\n          Bedankt voor jouw deelname. Houd onze volgende veilingen in de gaten via\n          <a href="https://veiling.tosch.nl" style="color:#FF6F00">veiling.tosch.nl</a>.\n        </p>\n      </div>\n    </div>'
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.220s
+
+FAILED (failures=12)

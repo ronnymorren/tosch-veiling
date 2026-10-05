@@ -1,0 +1,9 @@
+{
+  "baseline_commit": "29db7a6",
+  "scope": "localhost Chrome, mocked verification response, no real authentication",
+  "before_login_javascript_executed": true,
+  "after_login_redirect": "/veilingen",
+  "before_admin_title_javascript_executed": true,
+  "after_admin_title_javascript_executed": false,
+  "passed": true
+}

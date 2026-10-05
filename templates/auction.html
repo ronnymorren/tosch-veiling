@@ -157,7 +157,7 @@
           <!-- Header -->
           <div class="panel-topbar">
             <span class="panel-tag">Live biedpaneel</span>
-            <span class="panel-ver">v1.10.0</span>
+            <span class="panel-ver">v1.10.1</span>
           </div>
           <div class="panel-realtime" id="panelRealtime">Realtime</div>
           <div class="panel-kijkers" id="panelKijkers" style="display:none"></div>
@@ -393,7 +393,7 @@
       }
       // Eerste bod mag gelijk zijn aan de startprijs; daarna altijd + min_increment
       const heeftBiedingen = data.bids && data.bids.length > 0;
-      minBedrag = heeftBiedingen ? data.current_price + data.min_increment : data.start_price;
+      minBedrag = heeftBiedingen ? Math.round((data.current_price + data.min_increment) * 100) / 100 : data.start_price;
       // Alleen resetten als de gebruiker nog niets heeft aangepast,
       // of als iemand anders heeft overboden waardoor zijn bedrag te laag is geworden
       if (currentBedrag < minBedrag) currentBedrag = minBedrag;
@@ -421,7 +421,7 @@
 
     function bedragAanpassen(dir) {
       if (!auctionData) return;
-      currentBedrag = Math.max(minBedrag, currentBedrag + dir * auctionData.min_increment);
+      currentBedrag = Math.max(minBedrag, Math.round((currentBedrag + dir * auctionData.min_increment) * 100) / 100);
       document.getElementById('bedragDisplay').textContent = fmtPlain(currentBedrag);
     }
 
@@ -538,7 +538,7 @@
       document.getElementById('winnerTekst').textContent = '🏆 Winnaar: ' + winner;
 
       // Winnaar-overlay tonen
-      const isJij = winner.toLowerCase() === mijnNaam.toLowerCase();
+      const isJij = auctionData?.winner_is_you === true;
       const card  = document.getElementById('winnerCard');
 
       if (isJij) {
@@ -623,14 +623,14 @@
         updateCountdown();
 
         const prevLeider = auctionData?.bids?.[0]?.bidder_name || null;
+        const wasLeider = auctionData?.leading_is_you === true;
         const prevBod    = auctionData?.current_price;
         auctionData = data;
 
         const nieuweLeider = data.bids?.[0]?.bidder_name || null;
 
         // 🔔 Overboden-melding
-        if (prevLeider && prevLeider.toLowerCase() === mijnNaam.toLowerCase()
-            && nieuweLeider && nieuweLeider.toLowerCase() !== mijnNaam.toLowerCase()) {
+        if (wasLeider && nieuweLeider && !data.leading_is_you) {
           const tekst = `📢 Je bent overboden door ${nieuweLeider}! Huidig bod: ${fmtEuro(data.current_price)} — bied nu terug!`;
           toonOverbodenBanner(tekst);
           stuurNotificatie('Je bent overboden! 📢',
@@ -782,7 +782,7 @@
   </script>
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.10.0 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.10.1 · Samen werken aan overmorgen</span>
   </footer>
 </body>
 </html>

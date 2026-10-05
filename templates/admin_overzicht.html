@@ -71,7 +71,7 @@
           <div class="ov-actions">
             <a href="/veiling/{{ a.id }}" target="_blank" class="btn btn-primary btn-sm">Veiling openen</a>
             <button class="btn btn-ghost btn-sm"
-              onclick="kopieer('{{ request.url.scheme }}://{{ request.url.netloc }}/veiling/{{ a.id }}', this)">
+              data-url="{{ request.url.scheme }}://{{ request.url.netloc }}/veiling/{{ a.id }}" onclick="kopieer(this.dataset.url, this)">
               Link kopiëren
             </button>
             <a href="/admin/veiling/{{ a.id }}/biedingen" class="btn btn-ghost btn-sm">🗑 Biedingen</a>
@@ -81,7 +81,7 @@
               onclick="archiveer({{ a.id }}, this)">📦 Archiveer</button>
             {% endif %}
             <button class="btn btn-ghost btn-sm" style="color:var(--red)"
-              onclick="verwijder({{ a.id }}, '{{ a.title | e }}', {{ a.bid_count }}, this)">
+              data-title="{{ a.title }}" onclick="verwijder({{ a.id }}, this.dataset.title, {{ a.bid_count }}, this)">
               Verwijderen
             </button>
           </div>
@@ -140,7 +140,7 @@
               <a href="/veiling/{{ a.id }}" target="_blank" class="btn btn-ghost btn-sm">Bekijken</a>
               <button class="btn btn-ghost btn-sm" onclick="herstel({{ a.id }}, this)">↩ Herstel</button>
               <button class="btn btn-ghost btn-sm" style="color:var(--red)"
-                onclick="verwijder({{ a.id }}, '{{ a.title | e }}', {{ a.bid_count }}, this)">
+                data-title="{{ a.title }}" onclick="verwijder({{ a.id }}, this.dataset.title, {{ a.bid_count }}, this)">
                 Verwijderen
               </button>
             </div>
@@ -223,7 +223,7 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.10.0 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.10.1 · Samen werken aan overmorgen</span>
   </footer>
 
   <script>

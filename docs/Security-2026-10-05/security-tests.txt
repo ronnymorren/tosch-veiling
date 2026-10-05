@@ -1,0 +1,29 @@
+C:\Users\rm\OneDrive - Tosch Automatisering B.V\Claude\Projecten\Tosch Veiling\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+test_admin_title_not_interpolated_in_javascript (__main__.SecurityTests.test_admin_title_not_interpolated_in_javascript) ... ok
+test_dynamic_responses_not_publicly_cached (__main__.SecurityTests.test_dynamic_responses_not_publicly_cached) ... ok
+test_expired_and_future_tokens_rejected (__main__.SecurityTests.test_expired_and_future_tokens_rejected) ... ok
+test_feedback_text_is_not_html (__main__.SecurityTests.test_feedback_text_is_not_html) ... ok
+test_home_uses_server_validated_redirect (__main__.SecurityTests.test_home_uses_server_validated_redirect) ... ok
+test_image_fetch_pins_ip_and_refuses_redirect_to_private_network (__main__.SecurityTests.test_image_fetch_pins_ip_and_refuses_redirect_to_private_network) ... ok
+test_image_fetch_rejects_html_and_oversized_response (__main__.SecurityTests.test_image_fetch_rejects_html_and_oversized_response) ... ok
+test_image_mime_is_derived_from_content (__main__.SecurityTests.test_image_mime_is_derived_from_content) ... ok
+test_invalid_json_shapes_and_oversized_body (__main__.SecurityTests.test_invalid_json_shapes_and_oversized_body) ... ok
+test_manager_email_not_interpolated_in_javascript (__main__.SecurityTests.test_manager_email_not_interpolated_in_javascript) ... ok
+test_mixed_public_private_dns_and_unsupported_urls (__main__.SecurityTests.test_mixed_public_private_dns_and_unsupported_urls) ... ok
+test_money_requires_finite_bounded_cents (__main__.SecurityTests.test_money_requires_finite_bounded_cents) ... ok
+test_mutation_rejects_cross_origin (__main__.SecurityTests.test_mutation_rejects_cross_origin) ... ok
+test_mutation_rejects_simple_content_type (__main__.SecurityTests.test_mutation_rejects_simple_content_type) ... ok
+test_private_image_targets_are_rejected_even_for_admin (__main__.SecurityTests.test_private_image_targets_are_rejected_even_for_admin) ... ok
+test_profile_cookie_is_secure_on_https (__main__.SecurityTests.test_profile_cookie_is_secure_on_https) ... ok
+test_redirect_rejects_external_and_backslash_paths (__main__.SecurityTests.test_redirect_rejects_external_and_backslash_paths) ... ok
+test_same_site_sibling_origin_is_rejected (__main__.SecurityTests.test_same_site_sibling_origin_is_rejected) ... ok
+test_session_tampering_rejected (__main__.SecurityTests.test_session_tampering_rejected) ... ok
+test_unauthenticated_admin_writes_do_not_open_database (__main__.SecurityTests.test_unauthenticated_admin_writes_do_not_open_database) ... ok
+test_unauthenticated_sensitive_endpoints (__main__.SecurityTests.test_unauthenticated_sensitive_endpoints) ... ok
+test_winner_email_escapes_user_name_and_title (__main__.SecurityTests.test_winner_email_escapes_user_name_and_title) ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.203s
+
+OK

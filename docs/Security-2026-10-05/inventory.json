@@ -1,0 +1,204 @@
+{
+  "git_commit": "29db7a616a95681ba2a965d8dd06755948c5d826",
+  "history_blobs_scanned": 46,
+  "secret_pattern_matches": [],
+  "routes": [
+    {
+      "method": "middleware",
+      "path": "http",
+      "handler": "ververs_user_cookie",
+      "line": 484
+    },
+    {
+      "method": "get",
+      "path": "/",
+      "handler": "home",
+      "line": 571
+    },
+    {
+      "method": "get",
+      "path": "/veilingen",
+      "handler": "veilingen_page",
+      "line": 617
+    },
+    {
+      "method": "get",
+      "path": "/uitloggen",
+      "handler": "uitloggen",
+      "line": 667
+    },
+    {
+      "method": "post",
+      "path": "/api/profiel/naam",
+      "handler": "update_naam",
+      "line": 674
+    },
+    {
+      "method": "post",
+      "path": "/api/feedback",
+      "handler": "api_feedback",
+      "line": 699
+    },
+    {
+      "method": "get",
+      "path": "/feedback",
+      "handler": "feedback_page",
+      "line": 750
+    },
+    {
+      "method": "post",
+      "path": "/api/feedback/{feedback_id}/stem",
+      "handler": "api_feedback_stem",
+      "line": 781
+    },
+    {
+      "method": "post",
+      "path": "/api/feedback/{feedback_id}/status",
+      "handler": "api_feedback_status",
+      "line": 817
+    },
+    {
+      "method": "delete",
+      "path": "/api/feedback/{feedback_id}",
+      "handler": "api_feedback_delete",
+      "line": 879
+    },
+    {
+      "method": "get",
+      "path": "/admin/login",
+      "handler": "admin_login_redirect",
+      "line": 903
+    },
+    {
+      "method": "post",
+      "path": "/admin/login",
+      "handler": "admin_login_post_redirect",
+      "line": 911
+    },
+    {
+      "method": "get",
+      "path": "/admin/logout",
+      "handler": "admin_logout",
+      "line": 915
+    },
+    {
+      "method": "get",
+      "path": "/admin",
+      "handler": "admin_page",
+      "line": 925
+    },
+    {
+      "method": "get",
+      "path": "/admin/overzicht",
+      "handler": "admin_overzicht",
+      "line": 935
+    },
+    {
+      "method": "get",
+      "path": "/veiling/{auction_id}",
+      "handler": "auction_page",
+      "line": 970
+    },
+    {
+      "method": "post",
+      "path": "/api/product-info",
+      "handler": "product_info",
+      "line": 993
+    },
+    {
+      "method": "post",
+      "path": "/api/auction/create",
+      "handler": "create_auction",
+      "line": 1095
+    },
+    {
+      "method": "get",
+      "path": "/api/image-proxy",
+      "handler": "image_proxy",
+      "line": 1139
+    },
+    {
+      "method": "get",
+      "path": "/api/auction/{auction_id}",
+      "handler": "get_auction",
+      "line": 1162
+    },
+    {
+      "method": "post",
+      "path": "/api/auth/send-login-code",
+      "handler": "send_login_code",
+      "line": 1261
+    },
+    {
+      "method": "post",
+      "path": "/api/auth/verify-login-code",
+      "handler": "verify_login_code",
+      "line": 1319
+    },
+    {
+      "method": "post",
+      "path": "/api/bid",
+      "handler": "place_bid",
+      "line": 1373
+    },
+    {
+      "method": "delete",
+      "path": "/api/bid/{bid_id}",
+      "handler": "delete_bid",
+      "line": 1436
+    },
+    {
+      "method": "delete",
+      "path": "/api/auction/{auction_id}",
+      "handler": "delete_auction",
+      "line": 1465
+    },
+    {
+      "method": "post",
+      "path": "/api/auction/{auction_id}/archive",
+      "handler": "archive_auction",
+      "line": 1487
+    },
+    {
+      "method": "post",
+      "path": "/api/auction/{auction_id}/unarchive",
+      "handler": "unarchive_auction",
+      "line": 1499
+    },
+    {
+      "method": "get",
+      "path": "/admin/veiling/{auction_id}/biedingen",
+      "handler": "admin_biedingen",
+      "line": 1514
+    },
+    {
+      "method": "get",
+      "path": "/admin/gebruikers",
+      "handler": "admin_gebruikers",
+      "line": 1545
+    },
+    {
+      "method": "post",
+      "path": "/api/admin/gebruikers",
+      "handler": "voeg_manager_toe",
+      "line": 1562
+    },
+    {
+      "method": "delete",
+      "path": "/api/admin/gebruikers/{manager_email:path}",
+      "handler": "verwijder_manager",
+      "line": 1596
+    },
+    {
+      "method": "get",
+      "path": "/admin/audit",
+      "handler": "admin_audit",
+      "line": 1620
+    }
+  ],
+  "local_configuration": {
+    "session_secret_at_least_32_chars": true,
+    "database_tls_required": true
+  },
+  "limitations": "Pattern scan, not proof that no secrets ever existed; local settings are not Vercel settings."
+}

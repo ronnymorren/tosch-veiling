@@ -34,6 +34,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
 import anthropic
 from ddgs import DDGS
+from security import MAX_BODY_BYTES, fetch_image, local_redirect, money, valid_email
 
 # ── Configuratie ──────────────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ OWNER_ROLLEN = ("owner",)
 # Inlogcode: max aantal actieve codes per adres per 10 min, en max foute pogingen per code
 LOGIN_MAX_CODES    = 3
 LOGIN_MAX_POGINGEN = 5
+LOGIN_MAX_CODES_PER_IP = 60  # allow colleagues sharing one office internet address
 
 # Kijkers: iemand telt mee als zijn zichtbare tab in de laatste N seconden gepolld heeft
 KIJKERS_VENSTER_SEC = 15
@@ -166,7 +168,7 @@ def maak_user_token(naam: str, email: str) -> str:
 
 def get_user(request: Request) -> dict | None:
     token = request.cookies.get(USER_COOKIE)
-    if not token:
+    if not token or len(token) > 4096:
         return None
     try:
         padded      = token + "=" * (4 - len(token) % 4)
@@ -177,7 +179,8 @@ def get_user(request: Request) -> dict | None:
             return None
         padded2  = payload_b64 + "=" * (4 - len(payload_b64) % 4)
         payload  = json.loads(base64.urlsafe_b64decode(padded2).decode())
-        if int(time.time()) - int(payload["ts"]) > USER_TTL:
+        age = int(time.time()) - int(payload["ts"])
+        if age > USER_TTL or age < -60:
             return None
         return {"naam": payload["naam"], "email": payload["email"], "ts": int(payload["ts"])}
     except Exception:
@@ -226,17 +229,18 @@ def stuur_afloop_mail(to, titel: str, winnaar: str, winnend_bod: float, is_winne
     """Afloopmail. `to` = één adres (winnaar) of een lijst (overige deelnemers,
     dan via bcc zodat niemand elkaars adres ziet)."""
     bod_str = f"€\xa0{winnend_bod:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    titel_html, winnaar_html = html.escape(titel), html.escape(winnaar)
 
     if is_winner:
         onderwerp = f"🎉 Gefeliciteerd! Je hebt gewonnen — {titel}"
-        intro     = f"Gefeliciteerd, {winnaar}!<br><br>Je hebt de veiling <strong>{titel}</strong> gewonnen met het hoogste bod van <strong>{bod_str}</strong>."
+        intro     = f"Gefeliciteerd, {winnaar_html}!<br><br>Je hebt de veiling <strong>{titel_html}</strong> gewonnen met het hoogste bod van <strong>{bod_str}</strong>."
         intro_txt = f"Gefeliciteerd, {winnaar}!\n\nJe hebt de veiling '{titel}' gewonnen met het hoogste bod van {bod_str}."
     else:
         onderwerp = f"Veiling afgelopen — {titel}"
-        intro     = f"De veiling <strong>{titel}</strong> is afgelopen. De winnaar is <strong>{winnaar}</strong> met een bod van <strong>{bod_str}</strong>. Helaas was jouw bod niet het hoogste."
+        intro     = f"De veiling <strong>{titel_html}</strong> is afgelopen. De winnaar is <strong>{winnaar_html}</strong> met een bod van <strong>{bod_str}</strong>. Helaas was jouw bod niet het hoogste."
         intro_txt = f"De veiling '{titel}' is afgelopen.\n\nDe winnaar is {winnaar} met een bod van {bod_str}.\nHelaas was jouw bod niet het hoogste."
 
-    html = f"""
+    html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">
       <div style="background:#FF6F00;padding:20px 24px;border-radius:12px 12px 0 0">
         <h1 style="color:#fff;margin:0;font-size:1.3rem;font-weight:800">Tosch Veiling</h1>
@@ -251,9 +255,9 @@ def stuur_afloop_mail(to, titel: str, winnaar: str, winnend_bod: float, is_winne
     </div>"""
 
     if isinstance(to, str):
-        stuur_email(to, onderwerp, html, intro_txt)
+        stuur_email(to, onderwerp, html_body, intro_txt)
     else:
-        stuur_email(os.getenv("SMTP_FROM", "veilingen@tosch.nl"), onderwerp, html, intro_txt, bcc=to)
+        stuur_email(os.getenv("SMTP_FROM", "veilingen@tosch.nl"), onderwerp, html_body, intro_txt, bcc=to)
 
 
 def mail_afloop(cur, row, bids) -> None:
@@ -290,9 +294,33 @@ def get_conn():
 def get_cur(conn):
     return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+
+def login_lock(cur, email):
+    # Same lock for requesting and verifying codes, including unknown users.
+    cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', ('login:' + email,))
+
+
+def code_digest(email, code):
+    return hmac.new(SESSION_SECRET.encode(), ('login:' + email + ':' + code).encode(), hashlib.sha256).hexdigest()
+
+
+def request_limit(cur, scope, identity, maximum, seconds=600):
+    """Database-backed limit shared by every serverless worker; caller commits."""
+    window = int(time.time()) // seconds * seconds
+    key = hmac.new(SESSION_SECRET.encode(), (scope + ':' + identity).encode(), hashlib.sha256).hexdigest()
+    cur.execute('DELETE FROM veiling_request_limits WHERE window_start < %s', (window - 3600,))
+    cur.execute('''INSERT INTO veiling_request_limits (key, window_start, hits) VALUES (%s,%s,1)
+        ON CONFLICT (key,window_start) DO UPDATE SET hits=veiling_request_limits.hits+1 RETURNING hits''', (key,window))
+    if cur.fetchone()['hits'] > maximum:
+        raise HTTPException(429, 'Te veel aanvragen. Probeer het later opnieuw.')
+
+
 def init_db():
     conn = get_conn()
     cur  = get_cur(conn)
+    cur.execute('''CREATE TABLE IF NOT EXISTS veiling_request_limits (
+        key TEXT NOT NULL, window_start BIGINT NOT NULL, hits INTEGER NOT NULL,
+        PRIMARY KEY (key, window_start))''')
     cur.execute("""
         CREATE TABLE IF NOT EXISTS auctions (
             id                         SERIAL  PRIMARY KEY,
@@ -416,6 +444,7 @@ def init_db_indien_nodig():
         cur.execute("SELECT pogingen FROM email_verifications LIMIT 1")  # nieuwste kolom (v1.9)
         cur.execute("SELECT created_at FROM auctions LIMIT 1")
         cur.execute("SELECT 1 FROM auction_presence LIMIT 1")  # v1.9.1: kijkers
+        cur.execute("SELECT 1 FROM veiling_request_limits LIMIT 1")  # v1.10.1: shared abuse limits
         conn.close()
     except Exception:
         try:
@@ -458,7 +487,49 @@ async def ververs_user_cookie(request: Request, call_next):
     """Sliding sessie: geldige cookie ouder dan USER_REFRESH_NA wordt bij elk
     bezoek stilzwijgend vernieuwd — actieve gebruikers hoeven zo nooit opnieuw
     in te loggen; pas na 30 dagen inactiviteit verloopt de sessie."""
-    response = await call_next(request)
+    response = None
+    if request.url.path.startswith('/api/') and not request.url.path.startswith('/api/auth/') and not get_user(request):
+        response = JSONResponse({'detail':'Niet ingelogd'},status_code=401)
+    if response is None and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+        origin = request.headers.get('origin')
+        scheme = 'https' if IS_VERCEL else request.url.scheme
+        expected = f'{scheme}://{request.url.netloc}'
+        if ((origin is not None and origin != expected)
+                or request.headers.get('sec-fetch-site') in ('cross-site', 'same-site')):
+            response = JSONResponse({'detail': 'Verzoek vanaf een andere website geweigerd'}, status_code=403)
+        else:
+            # All application writes use JSON. Reject browser-simple text/form
+            # bodies, malformed shapes and oversized bodies before route/DB access.
+            try:
+                raw = bytearray()
+                async for chunk in request.stream():
+                    raw.extend(chunk)
+                    if len(raw) > MAX_BODY_BYTES:
+                        raise HTTPException(413, 'Aanvraag is te groot')
+                request._body = bytes(raw)  # replay cached body to the downstream request
+                if not raw and request.url.path in (
+                    '/api/auth/send-login-code', '/api/auth/verify-login-code', '/api/bid',
+                    '/api/feedback', '/api/profiel/naam', '/api/auction/create',
+                    '/api/admin/gebruikers', '/api/product-info'):
+                    raise HTTPException(400, 'JSON-object is verplicht')
+                if raw:
+                    if request.headers.get('content-type', '').split(';')[0].strip().lower() != 'application/json':
+                        raise HTTPException(415, 'Gebruik application/json')
+                    data = json.loads(raw)
+                    if not isinstance(data, dict):
+                        raise HTTPException(400, 'Ongeldige aanvraag')
+                    limits = {'naam':80, 'email':254, 'code':6, 'bericht':2000, 'reden':1000,
+                              'status':30, 'title':200, 'description':10000, 'image_url':4096,
+                              'allowed_domains':1000, 'product_name':200, 'end_time':40}
+                    for key, limit in limits.items():
+                        if key in data and (not isinstance(data[key], str) or len(data[key]) > limit):
+                            raise HTTPException(400, f'Ongeldig veld: {key}')
+            except HTTPException as exc:
+                response = JSONResponse({'detail':exc.detail}, status_code=exc.status_code)
+            except (ValueError, UnicodeError):
+                response = JSONResponse({'detail':'Ongeldige JSON'}, status_code=400)
+    if response is None:
+        response = await call_next(request)
     # Security-headers (v1.9). Inline scripts/styles zijn nodig: alle pagina's
     # hebben onclick-handlers en <style>-blokken. Geen externe scripts of CDN's.
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -466,6 +537,8 @@ async def ververs_user_cookie(request: Request, call_next):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault("Content-Security-Policy", CSP)
+    if not request.url.path.startswith('/static/'):
+        response.headers.setdefault('Cache-Control', 'private, no-store')
     user = get_user(request)
     if user and int(time.time()) - user["ts"] > USER_REFRESH_NA:
         # Routes die zelf het cookie zetten/wissen (login, logout, naam-edit)
@@ -473,7 +546,7 @@ async def ververs_user_cookie(request: Request, call_next):
         al_gezet = any(h.startswith(USER_COOKIE + "=") for h in response.headers.getlist("set-cookie"))
         if not al_gezet:
             token = maak_user_token(user["naam"], user["email"])
-            response.set_cookie(USER_COOKIE, token, max_age=USER_TTL, httponly=True, samesite="lax")
+            response.set_cookie(USER_COOKIE, token, max_age=USER_TTL, httponly=True, samesite="lax", secure=IS_VERCEL or request.url.scheme == 'https')
     return response
 
 
@@ -494,9 +567,7 @@ templates = Jinja2Templates(env=jinja_env)
 
 def valideer_next(next_url: str, standaard: str = "/") -> str:
     """Sta alleen lokale paden toe — voorkomt open redirect-aanvallen."""  # 🔒 Fix 7
-    if next_url.startswith("/") and not next_url.startswith("//"):
-        return next_url
-    return standaard
+    return local_redirect(next_url, standaard)
 
 
 # ── Pagina's ──────────────────────────────────────────────────────────────────
@@ -506,7 +577,8 @@ async def home(request: Request):
     user = get_user(request)
     if user:
         return RedirectResponse(url="/veilingen", status_code=303)
-    return templates.TemplateResponse(request, "home.html")
+    return templates.TemplateResponse(request, "home.html", {
+        'next_url': valideer_next(request.query_params.get('next', ''), '/veilingen')})
 
 
 AUTO_ARCHIEF_DAGEN = 5
@@ -622,7 +694,7 @@ async def update_naam(request: Request):
     # Geef nieuw cookie terug met bijgewerkte naam
     token = maak_user_token(naam, user["email"])
     resp  = JSONResponse({"ok": True})
-    resp.set_cookie(USER_COOKIE, token, max_age=USER_TTL, httponly=True, samesite="lax")
+    resp.set_cookie(USER_COOKIE, token, max_age=USER_TTL, httponly=True, samesite="lax", secure=IS_VERCEL or request.url.scheme == 'https')
     return resp
 
 
@@ -644,15 +716,19 @@ async def api_feedback(request: Request):
 
     # Eerst opslaan — de mail mag falen zonder dat de feedback verloren gaat
     conn = get_conn()
-    cur  = get_cur(conn)
-    cur.execute(
-        "INSERT INTO feedback (email, naam, bericht, created_at) "
-        "VALUES (%s, %s, %s, %s) RETURNING id",
-        (user["email"], user["naam"], bericht, nu().isoformat())
-    )
-    feedback_id = cur.fetchone()["id"]
-    conn.commit()
-    conn.close()
+    try:
+        cur  = get_cur(conn)
+        request_limit(cur, "feedback-user", user["email"], 5)
+        request_limit(cur, "feedback-ip", get_client_ip(request), 20)
+        cur.execute(
+            "INSERT INTO feedback (email, naam, bericht, created_at) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (user["email"], user["naam"], bericht, nu().isoformat())
+        )
+        feedback_id = cur.fetchone()["id"]
+        conn.commit()
+    finally:
+        conn.close()
 
     afzender  = f"{user['naam']} <{user['email']}>"
     bord_link = f"https://veiling.tosch.nl/feedback#fb-{feedback_id}"
@@ -834,7 +910,7 @@ async def admin_login_redirect(request: Request, next: str = "/admin/overzicht")
     safe_next = valideer_next(next, "/admin/overzicht")
     if is_admin(request):
         return RedirectResponse(url=safe_next, status_code=303)
-    return RedirectResponse(url=f"/?next={safe_next}", status_code=303)
+    return RedirectResponse(url='/?' + urllib.parse.urlencode({'next':safe_next}), status_code=303)
 
 @app.post("/admin/login")
 async def admin_login_post_redirect():
@@ -902,11 +978,13 @@ async def auction_page(request: Request, auction_id: int):
         return RedirectResponse(url=f"/?next=/veiling/{auction_id}", status_code=303)
     conn = get_conn()
     cur  = get_cur(conn)
-    cur.execute("SELECT id FROM auctions WHERE id = %s", (auction_id,))
+    cur.execute("SELECT id, allowed_domains FROM auctions WHERE id = %s", (auction_id,))
     row = cur.fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Veiling niet gevonden")
+    if not domein_toegestaan(row, user['email']):
+        raise HTTPException(403, 'Je e-mailadres heeft geen toegang tot deze veiling')
     return templates.TemplateResponse(request, "auction.html", {
         "auction_id": auction_id,
         "mijn_naam":  user["naam"],
@@ -970,9 +1048,7 @@ async def product_info(request: Request):
         ext   = ".png" if ".png" in url.lower() else ".jpg"
         fname = secrets.token_hex(8) + ext
         dest  = img_dir / fname
-        req   = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            raw_data = resp.read()
+        raw_data, _ = fetch_image(url, allow_external=True)
         if len(raw_data) < 5000:
             return ""
         with open(dest, "wb") as f:
@@ -1025,6 +1101,29 @@ async def product_info(request: Request):
 @app.post("/api/auction/create")
 async def create_auction(request: Request):
     data = await request.json()
+    title = data.get('title', '').strip()
+    if not title or len(title) > 200:
+        raise HTTPException(400, 'Vul een titel in van maximaal 200 tekens')
+    start_price = money(data.get('start_price'))
+    min_increment = money(data.get('min_increment', 5), positive=True)
+    try:
+        end_time = datetime.fromisoformat(data.get('end_time', ''))
+        if end_time.tzinfo is not None:
+            end_time = end_time.astimezone(AMS).replace(tzinfo=None)
+        if end_time <= nu():
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(400, 'Kies een geldige eindtijd in de toekomst')
+    image_url = data.get('image_url', '')
+    if image_url and not (image_url.startswith('https://') or re.fullmatch(r'/static/images/[a-f0-9]+\.(png|jpg)', image_url)):
+        raise HTTPException(400, 'Ongeldige afbeeldings-URL')
+    specs = data.get('specs', [])
+    if not isinstance(specs, list) or len(specs) > 40 or any(
+        not isinstance(s, dict) or any(not isinstance(s.get(k), str) or len(s[k]) > 500 for k in ('naam','waarde')) for s in specs):
+        raise HTTPException(400, 'Ongeldige specificaties')
+    domains = data.get('allowed_domains', '').strip().lower()
+    if domains and any(not re.fullmatch(r'(?:[a-z0-9-]+\.)+[a-z]{2,63}', d.strip()) for d in domains.split(',')):
+        raise HTTPException(400, 'Ongeldige domeinbeperking')
 
     access_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
 
@@ -1042,17 +1141,17 @@ async def create_auction(request: Request):
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """, (
-        data["title"],
+        title,
         data.get("description", ""),
-        data.get("image_url", ""),
-        json.dumps(data.get("specs", [])),
-        float(data["start_price"]),
-        float(data["start_price"]),
-        float(data.get("min_increment", 5.0)),
-        data["end_time"],
+        image_url,
+        json.dumps(specs),
+        start_price,
+        start_price,
+        min_increment,
+        end_time.isoformat(),
         access_code,
         1 if data.get("require_email_verification") else 0,
-        data.get("allowed_domains", "").strip(),
+        domains,
         nu().isoformat(),
     ))
     auction_id = cur.fetchone()["id"]
@@ -1072,27 +1171,19 @@ async def image_proxy(url: str, request: Request):
     # elke andere host alleen voor admins (foto-kiezer bij aanmaken).
     if not get_user(request):
         raise HTTPException(status_code=403, detail="Geen toegang")
-    if not url.startswith("https://"):
-        raise HTTPException(400, "Ongeldige URL")
-    host = urllib.parse.urlsplit(url).hostname or ""
-    if not host.endswith(PROXY_HOSTS_IEDEREEN) and not is_admin(request):
-        raise HTTPException(status_code=403, detail="Geen toegang")
     try:
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Referer": "https://www.bing.com/",
-                "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=8) as r:
-            content      = r.read()
-            content_type = r.headers.get("Content-Type", "image/jpeg").split(";")[0]
-        return Response(content=content, media_type=content_type,
-                        headers={"Cache-Control": "public, max-age=86400"})
-    except Exception:
-        raise HTTPException(404, "Afbeelding niet beschikbaar")
+        host = urllib.parse.urlsplit(url).hostname or ''
+    except ValueError:
+        raise HTTPException(400, 'Ongeldige URL')
+    allow_external = False
+    if not host.lower().endswith(PROXY_HOSTS_IEDEREEN):
+        allow_external = is_admin(request)
+    content, content_type = fetch_image(url, allow_external=allow_external)
+    return Response(content=content, media_type=content_type, headers={
+        'Cache-Control':'private, max-age=86400',
+        'Content-Security-Policy':"default-src 'none'; sandbox",
+        'X-Content-Type-Options':'nosniff',
+    })
 
 
 # ── API: veiling ophalen ──────────────────────────────────────────────────────
@@ -1184,6 +1275,8 @@ async def get_auction(auction_id: int, request: Request, zichtbaar: int | None =
         "kijkers":                    kijkers,
         "status":                     "ended" if is_ended else "active",
         "winner":                     winner,
+        "winner_is_you":              bool(is_ended and bids and bids[0].get('email') == user['email']),
+        "leading_is_you":             bool(bids and bids[0].get('email') == user['email']),
         "bids":                       [  # 🔒 Fix 12: geen email/IP in publieke response
             {"id": b["id"], "bidder_name": b["bidder_name"],
              "amount": b["amount"], "timestamp": b["timestamp"]}
@@ -1198,52 +1291,31 @@ async def get_auction(auction_id: int, request: Request, zichtbaar: int | None =
 
 @app.post("/api/auth/send-login-code")
 async def send_login_code(request: Request):
-    data  = await request.json()
-    email = data.get("email", "").strip().lower()
-
-    if not email or "@" not in email or "." not in email.split("@")[-1]:
-        raise HTTPException(400, "Ongeldig e-mailadres")
-
-    # Check of dit e-mailadres al bekend is
+    data = await request.json()
+    email = valid_email(data.get("email"))
     conn = get_conn()
-    cur  = get_cur(conn)
-    cur.execute("SELECT naam FROM users WHERE email = %s", (email,))
-    user_row = cur.fetchone()
-    known = user_row is not None
-    begroeting = user_row["naam"] if known else "Hoi"
-
-    code       = "".join(secrets.choice("0123456789") for _ in range(6))
-    expires_at = (nu() + timedelta(minutes=10)).isoformat()
-
-    # auction_id = 0 is schildwacht voor globale login (geen specifieke veiling).
-    # Rate limit: verlopen codes opruimen, dan max LOGIN_MAX_CODES actieve codes per adres.
-    now_iso = nu().isoformat()
-    cur.execute(
-        "DELETE FROM email_verifications WHERE email = %s AND auction_id = 0 AND expires_at < %s",
-        (email, now_iso)
-    )
-    cur.execute(
-        "SELECT COUNT(*) AS n FROM email_verifications "
-        "WHERE email = %s AND auction_id = 0 AND expires_at >= %s",
-        (email, now_iso)
-    )
-    if cur.fetchone()["n"] >= LOGIN_MAX_CODES:
+    try:
+        cur = get_cur(conn)
+        login_lock(cur, email)
+        request_limit(cur, 'login-ip', get_client_ip(request), LOGIN_MAX_CODES_PER_IP)
+        cur.execute("SELECT naam FROM users WHERE email = %s", (email,))
+        user_row = cur.fetchone()
+        known = user_row is not None
+        begroeting = html.escape(user_row["naam"] if known else "Hoi")
+        code = "".join(secrets.choice("0123456789") for _ in range(6))
+        now_iso = nu().isoformat()
+        expires_at = (nu() + timedelta(minutes=10)).isoformat()
+        cur.execute("DELETE FROM email_verifications WHERE email = %s AND auction_id = 0 AND expires_at < %s", (email, now_iso))
+        cur.execute("SELECT COUNT(*) AS n FROM email_verifications WHERE email = %s AND auction_id = 0 AND expires_at >= %s", (email, now_iso))
+        if cur.fetchone()["n"] >= LOGIN_MAX_CODES:
+            raise HTTPException(429, "Te veel codes aangevraagd. Wacht 10 minuten en probeer het opnieuw.")
+        cur.execute("UPDATE email_verifications SET used = 1 WHERE email = %s AND auction_id = 0 AND used = 0", (email,))
+        cur.execute("INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (%s, 0, %s, %s)", (email, code_digest(email, code), expires_at))
+        conn.commit()
+    finally:
         conn.close()
-        raise HTTPException(429, "Te veel codes aangevraagd. Wacht 10 minuten en probeer het opnieuw.")
-    # Alleen de nieuwste code is geldig: oudere codes ongeldig maken, zodat een
-    # opgebrande code niet terugvalt op een eerdere met verse pogingen.
-    cur.execute(
-        "UPDATE email_verifications SET used = 1 WHERE email = %s AND auction_id = 0 AND used = 0",
-        (email,)
-    )
-    cur.execute(
-        "INSERT INTO email_verifications (email, auction_id, code, expires_at) VALUES (%s, 0, %s, %s)",
-        (email, code, expires_at)
-    )
-    conn.commit()
-    conn.close()
 
-    html = f"""
+    html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">
       <div style="background:#FF6F00;padding:20px 24px;border-radius:12px 12px 0 0">
         <h1 style="color:#fff;margin:0;font-size:1.3rem;font-weight:800">Tosch Veiling</h1>
@@ -1265,10 +1337,10 @@ async def send_login_code(request: Request):
     </div>"""
 
     try:
-        stuur_email(email, "Inlogcode – Tosch Veiling", html,
+        stuur_email(email, "Inlogcode – Tosch Veiling", html_body,
                     f"Jouw inlogcode: {code}\n\nGeldig voor 10 minuten.")
-    except Exception as e:
-        raise HTTPException(500, f"E-mail versturen mislukt: {e}")
+    except Exception:
+        raise HTTPException(503, "E-mail versturen is tijdelijk niet beschikbaar. Probeer later opnieuw.")
 
     return JSONResponse({"ok": True, "known": known})
 
@@ -1277,72 +1349,53 @@ async def send_login_code(request: Request):
 
 @app.post("/api/auth/verify-login-code")
 async def verify_login_code(request: Request):
-    data  = await request.json()
-    email = data.get("email", "").strip().lower()
-    code  = data.get("code", "").strip()
-    naam_nieuw = data.get("naam", "").strip()  # alleen verplicht voor nieuwe gebruikers
-
-    if not email or not code:
-        raise HTTPException(400, "Ontbrekende gegevens")
-
+    data = await request.json()
+    email = valid_email(data.get("email"))
+    code = data.get("code", "")
+    naam_nieuw = data.get("naam", "")
+    if not isinstance(code, str) or not re.fullmatch(r"[0-9]{6}", code):
+        raise HTTPException(400, "Voer een code van zes cijfers in")
+    if not isinstance(naam_nieuw, str) or len(naam_nieuw) > 80:
+        raise HTTPException(400, "Ongeldige naam")
+    naam_nieuw = naam_nieuw.strip()
     conn = get_conn()
-    cur  = get_cur(conn)
-    cur.execute(
-        "SELECT * FROM email_verifications "
-        "WHERE email = %s AND auction_id = 0 AND used = 0 "
-        "ORDER BY id DESC LIMIT 1",
-        (email,)
-    )
-    row = cur.fetchone()
-
-    if not row:
-        conn.close()
-        raise HTTPException(400, "Geen actieve code gevonden. Vraag een nieuwe code aan.")
-    if nu() > datetime.fromisoformat(row["expires_at"]):
-        conn.close()
-        raise HTTPException(400, "Code verlopen. Vraag een nieuwe code aan.")
-    if (row.get("pogingen") or 0) >= LOGIN_MAX_POGINGEN:
-        conn.close()
-        raise HTTPException(400, "Te veel foute pogingen. Vraag een nieuwe code aan.")
-    if not hmac.compare_digest(row["code"], code):  # 🔒 Fix 9: timing-safe OTP vergelijking
-        pogingen = (row.get("pogingen") or 0) + 1
-        over     = LOGIN_MAX_POGINGEN - pogingen
-        cur.execute(
-            "UPDATE email_verifications SET pogingen = %s, used = CASE WHEN %s <= 0 THEN 1 ELSE used END "
-            "WHERE id = %s",
-            (pogingen, over, row["id"])
-        )
-        conn.commit()
-        conn.close()
-        if over <= 0:
+    try:
+        cur = get_cur(conn)
+        login_lock(cur, email)
+        cur.execute("SELECT * FROM email_verifications WHERE email = %s AND auction_id = 0 AND used = 0 ORDER BY id DESC LIMIT 1 FOR UPDATE", (email,))
+        row = cur.fetchone()
+        if not row or nu() >= datetime.fromisoformat(row["expires_at"]):
+            raise HTTPException(400, "Geen geldige code gevonden. Vraag een nieuwe code aan.")
+        if (row.get("pogingen") or 0) >= LOGIN_MAX_POGINGEN:
             raise HTTPException(400, "Te veel foute pogingen. Vraag een nieuwe code aan.")
-        raise HTTPException(400, f"Onjuiste code. Nog {over} poging{'' if over == 1 else 'en'}.")
-
-    cur.execute("UPDATE email_verifications SET used = 1 WHERE id = %s", (row["id"],))
-
-    # Naam ophalen of opslaan
-    cur.execute("SELECT naam FROM users WHERE email = %s", (email,))
-    user_row = cur.fetchone()
-    if user_row:
-        naam = user_row["naam"]
-    else:
-        if not naam_nieuw:
-            conn.close()
-            raise HTTPException(400, "Vul je naam in — het is je eerste keer")
-        naam = naam_nieuw
-        cur.execute(
-            "INSERT INTO users (email, naam, created_at) VALUES (%s, %s, %s)",
-            (email, naam, nu().isoformat())
-        )
-
-    role = haal_rol(cur, email)
-    log_audit(email, "login", ip=get_client_ip(request), cur=cur)
-    conn.commit()
-    conn.close()
-
-    token = maak_user_token(naam, email)
-    resp  = JSONResponse({"ok": True, "role": role})
-    resp.set_cookie(USER_COOKIE, token, httponly=True, max_age=USER_TTL, samesite="lax")
+        # Existing six-digit codes expire naturally within ten minutes of rollout.
+        expected = code if len(row["code"]) == 6 else code_digest(email, code)
+        if not hmac.compare_digest(row["code"], expected):
+            pogingen = (row.get("pogingen") or 0) + 1
+            over = LOGIN_MAX_POGINGEN - pogingen
+            cur.execute("UPDATE email_verifications SET pogingen = %s, used = CASE WHEN %s <= 0 THEN 1 ELSE used END WHERE id = %s", (pogingen,over,row["id"]))
+            conn.commit()
+            if over <= 0:
+                raise HTTPException(400, "Te veel foute pogingen. Vraag een nieuwe code aan.")
+            raise HTTPException(400, f"Onjuiste code. Nog {over} pogingen.")
+        cur.execute("SELECT naam FROM users WHERE email = %s", (email,))
+        user_row = cur.fetchone()
+        if user_row:
+            naam = user_row["naam"]
+        else:
+            if not naam_nieuw:
+                raise HTTPException(400, "Vul je naam in — het is je eerste keer")
+            naam = naam_nieuw
+            cur.execute("INSERT INTO users (email, naam, created_at) VALUES (%s, %s, %s)", (email,naam,nu().isoformat()))
+        cur.execute("UPDATE email_verifications SET used = 1 WHERE id = %s", (row["id"],))
+        role = haal_rol(cur,email)
+        log_audit(email,"login",ip=get_client_ip(request),cur=cur)
+        conn.commit()
+    finally:
+        conn.close()
+    token = maak_user_token(naam,email)
+    resp = JSONResponse({"ok":True,"role":role})
+    resp.set_cookie(USER_COOKIE,token,httponly=True,max_age=USER_TTL,samesite="lax",secure=IS_VERCEL or request.url.scheme == 'https')
     return resp
 
 
@@ -1357,7 +1410,7 @@ async def place_bid(request: Request):
     data = await request.json()
     try:
         auction_id = int(data["auction_id"])
-        amount = float(data["amount"])
+        amount = money(data["amount"])
     except (KeyError, TypeError, ValueError, OverflowError):
         raise HTTPException(status_code=400, detail="Ongeldig bod")
     if not math.isfinite(amount) or amount < 0:
@@ -1379,7 +1432,7 @@ async def place_bid(request: Request):
 
         cur.execute("SELECT 1 FROM bids WHERE auction_id = %s LIMIT 1", (auction_id,))
         heeft_biedingen = cur.fetchone() is not None
-        min_bid = (row["current_price"] + row["min_increment"]) if heeft_biedingen else row["start_price"]
+        min_bid = round(row["current_price"] + row["min_increment"], 2) if heeft_biedingen else row["start_price"]
         end_time = datetime.fromisoformat(row["end_time"])
         accepted_at = nu()
         if accepted_at >= end_time or row["status"] == "ended":
@@ -1425,11 +1478,11 @@ async def delete_bid(bid_id: int, request: Request):
         raise HTTPException(status_code=404, detail="Bod niet gevonden")
 
     auction_id = bid["auction_id"]
+    cur.execute("SELECT start_price FROM auctions WHERE id = %s FOR UPDATE", (auction_id,))
+    auction = cur.fetchone()
     cur.execute("DELETE FROM bids WHERE id = %s", (bid_id,))
     cur.execute("SELECT MAX(amount) as top FROM bids WHERE auction_id = %s", (auction_id,))
     top = cur.fetchone()
-    cur.execute("SELECT start_price FROM auctions WHERE id = %s", (auction_id,))
-    auction = cur.fetchone()
     new_price = top["top"] if top["top"] is not None else auction["start_price"]
     cur.execute("UPDATE auctions SET current_price = %s WHERE id = %s", (new_price, auction_id))
     conn.commit()
@@ -1448,7 +1501,7 @@ async def delete_auction(auction_id: int, request: Request):
     if not actor:
         conn.close()
         raise HTTPException(status_code=403, detail="Geen toegang")
-    cur.execute("SELECT title FROM auctions WHERE id = %s", (auction_id,))
+    cur.execute("SELECT title FROM auctions WHERE id = %s FOR UPDATE", (auction_id,))
     auction_row = cur.fetchone()
     cur.execute("DELETE FROM bids WHERE auction_id = %s", (auction_id,))
     cur.execute("DELETE FROM auction_presence WHERE auction_id = %s", (auction_id,))
@@ -1540,7 +1593,7 @@ async def admin_gebruikers(request: Request):
 @app.post("/api/admin/gebruikers")
 async def voeg_manager_toe(request: Request):
     data  = await request.json()
-    email = data.get("email", "").strip().lower()
+    email = valid_email(data.get("email"))
     naam  = data.get("naam", "").strip()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Ongeldig e-mailadres")

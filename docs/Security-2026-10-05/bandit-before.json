@@ -1,0 +1,262 @@
+{
+  "errors": [],
+  "generated_at": "2026-10-05T18:53:38Z",
+  "metrics": {
+    ".\\main.py": {
+      "CONFIDENCE.HIGH": 11,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 8,
+      "SEVERITY.MEDIUM": 3,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 1352,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "_totals": {
+      "CONFIDENCE.HIGH": 11,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 8,
+      "SEVERITY.MEDIUM": 3,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 1352,
+      "nosec": 0,
+      "skipped_tests": 0
+    }
+  },
+  "results": [
+    {
+      "code": "152         conn.close()\n153     except Exception:\n154         pass\n155 \n",
+      "col_offset": 4,
+      "end_col_offset": 12,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 153,
+      "line_range": [
+        153,
+        154
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "206     )\n207     with urllib.request.urlopen(req, timeout=10) as r:\n208         result = json.loads(r.read().decode())\n",
+      "col_offset": 9,
+      "end_col_offset": 48,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 22,
+        "link": "https://cwe.mitre.org/data/definitions/22.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+      "line_number": 207,
+      "line_range": [
+        207
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+      "test_id": "B310",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "275             stuur_afloop_mail(winnaar_email, row[\"title\"], winner, winnend_bod, True)\n276         except Exception:\n277             pass\n278     if overigen:\n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 276,
+      "line_range": [
+        276,
+        277
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "280             stuur_afloop_mail(overigen, row[\"title\"], winner, winnend_bod, False)\n281         except Exception:\n282             pass\n283 \n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 281,
+      "line_range": [
+        281,
+        282
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "422             init_db()\n423         except Exception:\n424             pass\n425 \n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 423,
+      "line_range": [
+        423,
+        424
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "672         stuur_email(\"rm@tosch.nl\", f\"Veiling feedback van {user['naam']}\", html_body, text_body)\n673     except Exception:\n674         pass  # feedback staat al op het bord\n675     return JSONResponse({\"ok\": True, \"id\": feedback_id})\n",
+      "col_offset": 4,
+      "end_col_offset": 12,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 673,
+      "line_range": [
+        673,
+        674
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "801             stuur_email(oud[\"email\"], f\"Update op je feedback: {label}\", html_body, text_body)\n802         except Exception:\n803             pass  # status is al opgeslagen\n804     return JSONResponse({\"ok\": True})\n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 802,
+      "line_range": [
+        802,
+        803
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "973         req   = urllib.request.Request(url, headers={\"User-Agent\": \"Mozilla/5.0\"})\n974         with urllib.request.urlopen(req, timeout=5) as resp:\n975             raw_data = resp.read()\n",
+      "col_offset": 13,
+      "end_col_offset": 51,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 22,
+        "link": "https://cwe.mitre.org/data/definitions/22.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+      "line_number": 974,
+      "line_range": [
+        974
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+      "test_id": "B310",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "1009                         image_urls.append(local)\n1010                 except Exception:\n1011                     continue\n1012     except Exception:\n",
+      "col_offset": 16,
+      "end_col_offset": 28,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Continue detected.",
+      "line_number": 1010,
+      "line_range": [
+        1010,
+        1011
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html",
+      "test_id": "B112",
+      "test_name": "try_except_continue"
+    },
+    {
+      "code": "1011                     continue\n1012     except Exception:\n1013         pass\n1014 \n",
+      "col_offset": 4,
+      "end_col_offset": 12,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 1012,
+      "line_range": [
+        1012,
+        1013
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1088         )\n1089         with urllib.request.urlopen(req, timeout=8) as r:\n1090             content      = r.read()\n",
+      "col_offset": 13,
+      "end_col_offset": 51,
+      "filename": ".\\main.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 22,
+        "link": "https://cwe.mitre.org/data/definitions/22.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+      "line_number": 1089,
+      "line_range": [
+        1089
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+      "test_id": "B310",
+      "test_name": "blacklist"
+    }
+  ]
+}

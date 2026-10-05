@@ -1,0 +1,17 @@
+test_boundary_matrix (__main__.ExtensionTests.test_boundary_matrix) ... ok
+test_competing_final_polls_claim_mail_once (__main__.ExtensionTests.test_competing_final_polls_claim_mail_once) ... ok
+test_concurrent_equal_bids_only_one_accepted (__main__.ExtensionTests.test_concurrent_equal_bids_only_one_accepted) ... ok
+test_ended_and_forbidden_bids_never_extend (__main__.ExtensionTests.test_ended_and_forbidden_bids_never_extend) ... ok
+test_explicit_timezone_summer_and_winter (__main__.ExtensionTests.test_explicit_timezone_summer_and_winter) ... ok
+test_invalid_bids_never_extend (__main__.ExtensionTests.test_invalid_bids_never_extend) ... ok
+test_mail_only_once_after_final_deadline (__main__.ExtensionTests.test_mail_only_once_after_final_deadline) ... ok
+test_overview_poll_does_not_remove_existing_presence (__main__.ExtensionTests.test_overview_poll_does_not_remove_existing_presence) ... ok
+test_poll_waits_for_bid_and_sees_extended_deadline (__main__.ExtensionTests.test_poll_waits_for_bid_and_sees_extended_deadline) ... ok
+test_repeat_extension_and_no_extension_outside_window (__main__.ExtensionTests.test_repeat_extension_and_no_extension_outside_window) ... ok
+test_sweep_rechecks_stale_candidate_after_waiting_for_bid (__main__.ExtensionTests.test_sweep_rechecks_stale_candidate_after_waiting_for_bid) ... ok
+test_transaction_failure_rolls_back_bid_and_extension (__main__.ExtensionTests.test_transaction_failure_rolls_back_bid_and_extension) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 20.593s
+
+OK

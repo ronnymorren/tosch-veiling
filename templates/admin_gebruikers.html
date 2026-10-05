@@ -48,7 +48,7 @@
             <td style="padding:.75rem;color:var(--gray-500);font-size:.875rem">{{ m.created_at[:10] }}</td>
             <td style="padding:.75rem;text-align:right">
               <button class="btn btn-ghost btn-sm" style="color:var(--red)"
-                onclick="verwijder('{{ m.email | e }}', {{ loop.index }})">
+                data-email="{{ m.email }}" onclick="verwijder(this.dataset.email, {{ loop.index }})">
                 Verwijderen
               </button>
             </td>
@@ -74,7 +74,7 @@
 
   <footer class="site-footer">
     <img src="/static/tosch-logo.png" alt="Tosch" class="footer-logo">
-    <span>Tosch Veiling · v1.10.0 · Samen werken aan overmorgen</span>
+    <span>Tosch Veiling · v1.10.1 · Samen werken aan overmorgen</span>
   </footer>
 
   <script>

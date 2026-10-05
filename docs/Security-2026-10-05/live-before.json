@@ -1,0 +1,344 @@
+{
+  "target": "veiling.tosch.nl",
+  "client_date": "2026-10-05",
+  "authentication": "none",
+  "mutating_requests": 0,
+  "checks": [
+    {
+      "path": "/",
+      "status": 200,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      },
+      "version": "v1.10.0"
+    },
+    {
+      "path": "/.well-known/security.txt",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/robots.txt",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/.env",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/.git/HEAD",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/main.py",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/requirements.txt",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/veiling.db",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/test_credentials.py",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/static/%2e%2e%2f.env",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=86400",
+        "content-type": "text/plain; charset=utf-8",
+        "strict-transport-security": "max-age=63072000"
+      }
+    },
+    {
+      "path": "/docs",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/redoc",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/openapi.json",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/admin",
+      "status": 303,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "location": "/?next=/admin",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/admin/overzicht",
+      "status": 303,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "location": "/?next=/admin/overzicht",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/admin/gebruikers",
+      "status": 303,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "location": "/?next=/admin/gebruikers",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/admin/audit",
+      "status": 303,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "location": "/?next=/admin/audit",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/feedback",
+      "status": 303,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "location": "/",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/veilingen",
+      "status": 303,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "location": "/",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/veiling/1",
+      "status": 303,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "location": "/?next=/veiling/1",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/api/auction/1",
+      "status": 401,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "/api/image-proxy?url=https%3A%2F%2Fexample.com%2F",
+      "status": 403,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-vercel-cache": "MISS"
+      }
+    },
+    {
+      "path": "http://veiling.tosch.nl/",
+      "status": 308,
+      "location": "https://veiling.tosch.nl/"
+    }
+  ],
+  "tls": {
+    "protocol": "TLSv1.3",
+    "cipher": "TLS_AES_128_GCM_SHA256",
+    "certificate_not_after": "Nov 30 18:40:21 2026 GMT",
+    "hostname_verified": true
+  }
+}
